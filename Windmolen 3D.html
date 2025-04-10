@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>3D Windmolen met 4 Wieken aan As</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #container {
+            margin-top: 20px;
+        }
+        #controls {
+            margin-top: 20px;
+            text-align: center;
+        }
+        #windSpeedLabel, #rotationLabel {
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div id="controls">
+        <div id="windSpeedLabel">Windsnelheid: 0 m/s</div>
+        <input type="range" id="windSpeedSlider" min="0" max="40" step="0.1" value="0">
+        <div id="rotationLabel">Rotatie: 0°</div>
+        <input type="range" id="rotationSlider" min="0" max="360" step="1" value="0">
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script>
+        const container = document.getElementById('container');
+        const windSpeedSlider = document.getElementById('windSpeedSlider');
+        const windSpeedLabel = document.getElementById('windSpeedLabel');
+        const rotationSlider = document.getElementById('rotationSlider');
+        const rotationLabel = document.getElementById('rotationLabel');
+
+        // Three.js setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, 600 / 600, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(600, 600);
+        renderer.setClearColor(0xffffff, 1); // Witte achtergrond
+        container.appendChild(renderer.domElement);
+
+        // Windmolen groep (voor rotatie rond y-as)
+        const windmillGroup = new THREE.Group();
+
+        // Toren (verticale mast)
+        const towerGeometry = new THREE.CylinderGeometry(0.5, 0.5, 6, 32);
+        const towerMaterial = new THREE.MeshBasicMaterial({ color: 0x808080 }); // Grijs
+        const tower = new THREE.Mesh(towerGeometry, towerMaterial);
+        tower.position.y = 3; // Halverwege hoogte
+        windmillGroup.add(tower);
+
+        // As (horizontaal, dwars op de mast, langs z-as)
+        const axleGeometry = new THREE.CylinderGeometry(0.2, 0.2, 2, 32);
+        const axleMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 }); // Zwart
+        const axle = new THREE.Mesh(axleGeometry, axleMaterial);
+        axle.rotation.x = Math.PI / 2; // Horizontaal langs z-as
+        axle.position.set(0, 6, 1); // Bovenop toren, verschoven naar z=1
+        windmillGroup.add(axle);
+
+        // Wieken groep (draait rond z-as, aan einde van de as)
+        const bladesGroup = new THREE.Group();
+        const bladeGeometry = new THREE.BoxGeometry(0.2, 4, 0.5); // Dikte, lengte, breedte
+        const bladeMaterial = new THREE.MeshBasicMaterial({ color: 0x0000ff }); // Blauw
+
+        // Maak 4 wieken, middelpunt aan het einde van de as
+        for (let i = 0; i < 4; i++) {
+            const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+            blade.rotation.y = (i * 2 * Math.PI) / 4; // 90 graden uit elkaar rond y-as
+            bladesGroup.add(blade);
+        }
+        bladesGroup.position.set(0, 6, 2); // Aan einde van de as (z=2)
+        windmillGroup.add(bladesGroup);
+
+        scene.add(windmillGroup);
+
+        // Camera positie
+        camera.position.set(0, 4, 8);
+        camera.lookAt(0, 3, 0);
+
+        // Fysica variabelen voor wieken
+        let angularVelocity = 0;
+        const massMomentOfInertia = 1000; // Traagheidsmoment
+        const airDensity = 1.225; // kg/m³
+        const bladeArea = 4 * 0.5; // m² (lengte × breedte van wiek)
+        const dragCoefficient = 1.5;
+        const friction = 0.98;
+
+        function updatePhysics(windSpeed) {
+            // Windkracht voor wieken
+            const windForce = 0.5 * airDensity * windSpeed * windSpeed * bladeArea * dragCoefficient;
+            const torque = windForce * 2; // Arm is helft van wieklengte
+            const angularAcceleration = torque / massMomentOfInertia;
+
+            angularVelocity += angularAcceleration;
+            angularVelocity *= friction;
+            angularVelocity = Math.min(angularVelocity, windSpeed * 0.05); // Max snelheid limiet
+
+            bladesGroup.rotation.z += angularVelocity; // Rotatie rond z-as aan einde van de as
+        }
+
+        function updateRotation() {
+            const rotationDegrees = parseFloat(rotationSlider.value);
+            windmillGroup.rotation.y = THREE.MathUtils.degToRad(rotationDegrees); // Rotatie rond y-as
+            rotationLabel.textContent = `Rotatie: ${rotationDegrees}°`;
+        }
+
+        function animate() {
+            const windSpeed = parseFloat(windSpeedSlider.value);
+            windSpeedLabel.textContent = `Windsnelheid: ${windSpeed.toFixed(1)} m/s`;
+            updatePhysics(windSpeed);
+            updateRotation();
+            renderer.render(scene, camera);
+            requestAnimationFrame(animate);
+        }
+
+        // Start animatie
+        animate();
+    </script>
+</body>
+</html>

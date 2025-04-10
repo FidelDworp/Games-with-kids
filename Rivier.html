@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Drijvende Bal op Rivier - Herstart</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: grey;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        canvas {
+            margin-top: 20px;
+            border: 1px solid black;
+        }
+        #previewBtn {
+            margin-top: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="myCanvas" width="800" height="600"></canvas>
+    <button id="previewBtn">Start/Stop Preview</button>
+
+    <script>
+        const canvas = document.getElementById('myCanvas');
+        const ctx = canvas.getContext('2d');
+        const previewBtn = document.getElementById('previewBtn');
+
+        // Bal eigenschappen
+        let ball = {
+            x: -20, // Start buiten beeld links
+            y: 300,
+            vx: 0,
+            vy: 0,
+            radius: 20,
+            mass: 1
+        };
+
+        // Rivier eigenschappen
+        const riverWidth = 100;
+        const riverSpeed = 2; // Stromingssnelheid
+        const friction = 0.98; // Waterwrijving
+        const elasticity = 0.7; // Botsing elasticiteit
+
+        let riverPath = [];
+        let isRunning = false;
+
+        // Genereer kronkelende rivier
+        function generateRiver() {
+            riverPath = [];
+            for (let x = 0; x <= canvas.width; x += 10) {
+                const y = canvas.height / 2 + Math.sin(x * 0.01) * 100 + Math.cos(x * 0.005) * 50;
+                riverPath.push({ x, y });
+            }
+        }
+        generateRiver();
+
+        function resetBall() {
+            ball.x = -ball.radius; // Start links buiten beeld
+            ball.y = canvas.height / 2 + Math.sin(ball.x * 0.01) * 100 + Math.cos(ball.x * 0.005) * 50; // Op rivierhoogte
+            ball.vx = 0;
+            ball.vy = 0;
+        }
+
+        function updatePhysics() {
+            // Stroming van de rivier
+            ball.vx += riverSpeed * 0.01;
+
+            // Wrijving door water
+            ball.vx *= friction;
+            ball.vy *= friction;
+
+            // Positie update
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            // Botsingen met oevers
+            const riverY = canvas.height / 2 + Math.sin(ball.x * 0.01) * 100 + Math.cos(ball.x * 0.005) * 50;
+            const topBank = riverY - riverWidth / 2;
+            const bottomBank = riverY + riverWidth / 2;
+
+            if (ball.y - ball.radius < topBank) {
+                ball.y = topBank + ball.radius;
+                ball.vy = -ball.vy * elasticity;
+            } else if (ball.y + ball.radius > bottomBank) {
+                ball.y = bottomBank - ball.radius;
+                ball.vy = -ball.vy * elasticity;
+            }
+
+            // Herstart als de bal rechts uit beeld is
+            if (ball.x - ball.radius > canvas.width) {
+                resetBall();
+            }
+        }
+
+        function drawRiver() {
+            ctx.beginPath();
+            ctx.moveTo(riverPath[0].x, riverPath[0].y - riverWidth / 2);
+            for (let i = 1; i < riverPath.length; i++) {
+                ctx.lineTo(riverPath[i].x, riverPath[i].y - riverWidth / 2);
+            }
+            for (let i = riverPath.length - 1; i >= 0; i--) {
+                ctx.lineTo(riverPath[i].x, riverPath[i].y + riverWidth / 2);
+            }
+            ctx.closePath();
+            ctx.fillStyle = 'lightblue';
+            ctx.fill();
+        }
+
+        function drawBall() {
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fillStyle = 'red';
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            drawRiver();
+            drawBall();
+
+            if (isRunning) {
+                updatePhysics();
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // Preview knop
+        previewBtn.addEventListener('click', () => {
+            isRunning = !isRunning;
+            if (isRunning && ball.x - ball.radius > canvas.width) {
+                resetBall(); // Zet bal terug naar start als simulatie begint
+            }
+            previewBtn.textContent = isRunning ? 'Stop Preview' : 'Start Preview';
+        });
+
+        // Startpositie instellen
+        resetBall();
+        animate();
+    </script>
+</body>
+</html>

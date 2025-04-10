@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>3D Kubus met Bal - Verbeterd</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: lightblue;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #container {
+            margin-top: 20px;
+        }
+        #previewBtn {
+            margin-top: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <button id="previewBtn">Start/Stop Preview</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script>
+        const container = document.getElementById('container');
+        const previewBtn = document.getElementById('previewBtn');
+
+        // Three.js setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, 600 / 600, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(600, 600);
+        renderer.setClearColor(0x87CEEB, 1); // Lichtblauwe achtergrond
+        container.appendChild(renderer.domElement);
+
+        // Kubus
+        const cubeSize = 4;
+        const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+        const cubeMaterial = new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            wireframe: true,
+            wireframeLinewidth: 10
+        });
+        const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+        scene.add(cube);
+
+        // Bal
+        const ballRadius = 0.6;
+        const ballGeometry = new THREE.SphereGeometry(ballRadius, 1000, 1000);
+        const ballMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        const ball = new THREE.Mesh(ballGeometry, ballMaterial);
+        scene.add(ball);
+
+        // Fysica variabelen
+        let ballPos = new THREE.Vector3(0, 0, 0);
+        let ballVel = new THREE.Vector3(0, 0, 0);
+        const gravity = new THREE.Vector3(0, -0.15, 0);
+        const friction = 0.4;
+        const elasticity = 0.8;
+        let rotSpeed = new THREE.Vector3(0.01, 0.01, 0);
+        let lastRotationChange = 0;
+        let isRunning = false;
+
+        camera.position.z = 6; // Verder weg om vervorming te verminderen
+
+        function updatePhysics() {
+            // Zwaartekracht met rotatie
+            let gravityRotated = gravity.clone().applyEuler(cube.rotation);
+            ballVel.add(gravityRotated);
+
+            // Wrijving
+            ballVel.multiplyScalar(friction);
+
+            // Positie update
+            ballPos.add(ballVel);
+
+            // Botsingen met kubuswanden
+            const boundary = cubeSize / 2 - ballRadius;
+            ['x', 'y', 'z'].forEach(axis => {
+                if (ballPos[axis] > boundary) {
+                    ballPos[axis] = boundary;
+                    ballVel[axis] = -ballVel[axis] * elasticity;
+                } else if (ballPos[axis] < -boundary) {
+                    ballPos[axis] = -boundary;
+                    ballVel[axis] = -ballVel[axis] * elasticity;
+                }
+            });
+
+            ball.position.copy(ballPos);
+        }
+
+        function updateRotation(timestamp) {
+            if (timestamp - lastRotationChange >= 5000) {
+                rotSpeed.x = (Math.random() - 0.5) * 0.02;
+                rotSpeed.y = (Math.random() - 0.5) * 0.02;
+                rotSpeed.z = (Math.random() - 0.5) * 0.02;
+                lastRotationChange = timestamp;
+            }
+            cube.rotation.x += rotSpeed.x;
+            cube.rotation.y += rotSpeed.y;
+            cube.rotation.z += rotSpeed.z;
+        }
+
+        function animate(timestamp = 0) {
+            if (isRunning) {
+                updateRotation(timestamp);
+                updatePhysics();
+                renderer.render(scene, camera);
+            }
+            requestAnimationFrame(animate);
+        }
+
+        // Preview knop
+        previewBtn.addEventListener('click', () => {
+            isRunning = !isRunning;
+            previewBtn.textContent = isRunning ? 'Stop Preview' : 'Start Preview';
+        });
+
+        // Start animatie
+        animate();
+    </script>
+</body>
+</html>

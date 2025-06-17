@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roterende Kubus met Stuiterende Bal</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r167/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.min.js"></script>
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 0, 10);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Physics world
+        const world = new CANNON.World({
+            gravity: new CANNON.Vec3(0, -9.81, 0),
+            broadphase: new CANNON.NaiveBroadphase(),
+            solverIterations: 10
+        });
+
+        // Cube (semi-transparent)
+        const cubeSize = 4;
+        const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+        const cubeMaterial = new THREE.MeshLambertMaterial({
+            color: 0x00ff00,
+            transparent: true,
+            opacity: 0.2,
+            side: THREE.DoubleSide // Ensure inner faces are rendered
+        });
+        const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+        scene.add(cube);
+
+        // Cube physics (static walls)
+        const wallMaterial = new CANNON.Material('wall');
+        wallMaterial.restitution = 0.9; // Elastic collisions
+        const halfExtents = new CANNON.Vec3(cubeSize / 2, cubeSize / 2, 0.1); // Thin walls
+        const boxShape = new CANNON.Box(halfExtents);
+        const walls = [
+            { position: new CANNON.Vec3(0, 0, cubeSize / 2), quaternion: new CANNON.Quaternion() }, // Front
+            { position: new CANNON.Vec3(0, 0, -cubeSize / 2), quaternion: new CANNON.Quaternion() }, // Back
+            { position: new CANNON.Vec3(cubeSize / 2, 0, 0), quaternion: new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(0, 1, 0), Math.PI / 2) }, // Right
+            { position: new CANNON.Vec3(-cubeSize / 2, 0, 0), quaternion: new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(0, 1, 0), Math.PI / 2) }, // Left
+            { position: new CANNON.Vec3(0, cubeSize / 2, 0), quaternion: new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 2) }, // Top
+            { position: new CANNON.Vec3(0, -cubeSize / 2, 0), quaternion: new CANNON.Quaternion().setFromAxisAngle(new CANNON.Vec3(1, 0, 0), Math.PI / 2) } // Bottom
+        ];
+        walls.forEach(wall => {
+            const body = new CANNON.Body({ mass: 0, material: wallMaterial });
+            body.addShape(boxShape);
+            body.position.copy(wall.position);
+            body.quaternion.copy(wall.quaternion);
+            world.addBody(body);
+        });
+
+        // Ball
+        const ballRadius = 0.5;
+        const ballGeometry = new THREE.SphereGeometry(ballRadius, 32, 32);
+        const ballMaterial = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+        const ball = new THREE.Mesh(ballGeometry, ballMaterial);
+        scene.add(ball);
+
+        // Ball physics
+        const ballShape = new CANNON.Sphere(ballRadius);
+        const ballBody = new CANNON.Body({ mass: 1, material: wallMaterial });
+        ballBody.addShape(ballShape);
+        ballBody.position.set(0, cubeSize / 2 - ballRadius - 0.1, 0);
+        ballBody.velocity.set(2, 0, 2);
+        world.addBody(ballBody);
+
+        // Lighting
+        const light = new THREE.PointLight(0xffffff, 2, 20); // Increased intensity
+        light.position.set(5, 5, 5);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040, 0.2)); // Softer ambient light
+
+        // Animation loop
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = Math.min(clock.getDelta(), 0.1); // Cap delta to avoid large steps
+            world.step(1 / 60, delta, 3);
+
+            // Update cube rotation
+            cube.rotation.x += 0.01;
+            cube.rotation.y += 0.01;
+
+            // Sync ball position
+            ball.position.copy(ballBody.position);
+            ball.quaternion.copy(ballBody.quaternion);
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Error handling for debugging
+        window.onerror = function(msg, url, lineNo, columnNo, error) {
+            console.error('Error:', msg, 'at', url, 'Line:', lineNo, 'Column:', columnNo, 'Stack:', error.stack);
+        };
+    </script>
+</body>
+</html>

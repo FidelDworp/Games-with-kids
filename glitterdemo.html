@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glitter Explosie</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: linear-gradient(45deg, #ff00ff, #00ffff, #ffff00, #ff0000);
+            background-size: 400%;
+            animation: gradient 10s ease infinite;
+            font-family: 'Arial', sans-serif;
+        }
+        @keyframes gradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        h1 {
+            position: absolute;
+            top: 20%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 4em;
+            color: #fff;
+            text-shadow: 0 0 20px #ff00ff, 0 0 40px #00ff00, 0 0 60px #0000ff;
+            animation: neon 1.5s ease-in-out infinite alternate;
+        }
+        @keyframes neon {
+            from { text-shadow: 0 0 10px #ff00ff, 0 0 20px #00ff00, 0 0 30px #0000ff; }
+            to { text-shadow: 0 0 20px #00ff00, 0 0 40px #ff00ff, 0 0 60px #ffff00; }
+        }
+        .glitter {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: radial-gradient(circle, rgba(255,255,255,0.8), rgba(255,255,255,0));
+            border-radius: 50%;
+            pointer-events: none;
+            animation: sparkle 1s ease-in-out infinite;
+        }
+        @keyframes sparkle {
+            0% { transform: scale(0.5); opacity: 0.8; }
+            50% { transform: scale(1.5); opacity: 1; }
+            100% { transform: scale(0.5); opacity: 0.8; }
+        }
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+    </style>
+</head>
+<body>
+    <h1>GLITTER EXPLOSIE!</h1>
+    <div id="canvas-container"></div>
+    <script>
+        function setup() {
+            let canvas = createCanvas(windowWidth, windowHeight);
+            canvas.parent('canvas-container');
+            noStroke();
+        }
+
+        function draw() {
+            background(0, 50);
+            for (let i = 0; i < 50; i++) {
+                let x = random(width);
+                let y = random(height);
+                let size = random(10, 50);
+                let r = random(255);
+                let g = random(255);
+                let b = random(255);
+                fill(r, g, b, 200);
+                ellipse(x, y, size, size);
+                if (random(1) < 0.1) {
+                    fill(255, 255, 255, 255);
+                    ellipse(x, y, size * 0.5, size * 0.5);
+                }
+            }
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+        }
+
+        document.addEventListener('mousemove', function(e) {
+            for (let i = 0; i < 5; i++) {
+                let glitter = document.createElement('div');
+                glitter.className = 'glitter';
+                glitter.style.left = e.clientX + random(-20, 20) + 'px';
+                glitter.style.top = e.clientY + random(-20, 20) + 'px';
+                glitter.style.background = `radial-gradient(circle, rgba(${random(255)},${random(255)},${random(255)},0.8), rgba(255,255,255,0))`;
+                document.body.appendChild(glitter);
+                setTimeout(() => glitter.remove(), 1000);
+            }
+        });
+
+        setInterval(() => {
+            let colors = ['#ff00ff', '#00ff00', '#0000ff', '#ffff00', '#ff0000'];
+            document.querySelector('h1').style.color = colors[Math.floor(Math.random() * colors.length)];
+        }, 500);
+    </script>
+</body>
+</html>

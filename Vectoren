@@ -1,1 +1,198 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vectoren Animatie: Vlaggemast met Krachten</title>
+    <style>
+        body { display: flex; flex-direction: column; align-items: center; background-color: #f0f8ff; font-family: Arial, sans-serif; }
+        canvas { border: 1px solid #ccc; background-color: #fff; }
+        .controls { margin: 20px; }
+        .slider-container { margin: 10px; }
+        label { font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Vectoren Uitleg: Hoe Krachten Samenwerken</h1>
+    <p>Gebruik de schuifregelaars om de krachten aan te passen. Zie hoe de vlaggemast buigt!</p>
+    <canvas id="animationCanvas" width="600" height="600"></canvas>
+    <div class="controls">
+        <div class="slider-container">
+            <label for="force1">Kracht 1 (0-100 daN): <span id="force1Value">50</span></label>
+            <input type="range" id="force1" min="0" max="100" value="50">
+        </div>
+        <div class="slider-container">
+            <label for="force2">Kracht 2 (0-100 daN): <span id="force2Value">50</span></label>
+            <input type="range" id="force2" min="0" max="100" value="50">
+        </div>
+    </div>
 
+    <script>
+        const canvas = document.getElementById('animationCanvas');
+        const ctx = canvas.getContext('2d');
+        const force1Slider = document.getElementById('force1');
+        const force2Slider = document.getElementById('force2');
+        const force1Value = document.getElementById('force1Value');
+        const force2Value = document.getElementById('force2Value');
+
+        // Basis instellingen
+        const baseX = 300; // Midden van de canvas
+        const baseY = 500; // Basis van de vlaggemast
+        const poleHeight = 300; // Hoogte van de vlaggemast
+        const attachmentY = baseY - poleHeight + 50; // Aangrijpingspunt onder de vlag
+        const cubeSize = 100; // Grootte van de kubus basis
+
+        // Vector richtingen (vast, maar verschillend: bv. een naar links-boven, een naar rechts-boven)
+        const angle1 = -Math.PI / 6; // -30 graden (links-boven)
+        const angle2 = Math.PI / 6;  // +30 graden (rechts-boven)
+
+        // Maximale buiging (voor 100 daN resultante)
+        const maxBend = 100; // Pixels buiging
+
+        let force1 = 50;
+        let force2 = 50;
+
+        // Update sliders
+        force1Slider.addEventListener('input', () => {
+            force1 = parseInt(force1Slider.value);
+            force1Value.textContent = force1;
+            draw();
+        });
+
+        force2Slider.addEventListener('input', () => {
+            force2 = parseInt(force2Slider.value);
+            force2Value.textContent = force2;
+            draw();
+        });
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Teken kubus basis
+            drawCube(baseX - cubeSize / 2, baseY - cubeSize / 2, cubeSize);
+
+            // Bereken vectoren
+            const vec1 = { x: force1 * Math.cos(angle1), y: force1 * Math.sin(angle1) };
+            const vec2 = { x: force2 * Math.cos(angle2), y: force2 * Math.sin(angle2) };
+            const resultant = { x: vec1.x + vec2.x, y: vec1.y + vec2.y };
+
+            // Lengte van resultante
+            const resultantMagnitude = Math.sqrt(resultant.x ** 2 + resultant.y ** 2);
+
+            // Buigingsfactor (0-1)
+            const bendFactor = Math.min(resultantMagnitude / 100, 1); // Max bij 100 daN
+            const bendDirection = Math.atan2(resultant.y, resultant.x); // Richting van buiging
+
+            // Teken gebogen vlaggemast
+            drawBentPole(baseX, baseY, poleHeight, bendFactor, bendDirection);
+
+            // Teken vlag bovenaan (aangepast aan buiging)
+            const flagX = baseX + (maxBend * bendFactor) * Math.cos(bendDirection);
+            const flagY = baseY - poleHeight + (maxBend * bendFactor) * Math.sin(bendDirection);
+            drawFlag(flagX, flagY);
+
+            // Teken aangrijpingspunt
+            const attachX = baseX + (maxBend * bendFactor * (attachmentY - baseY + poleHeight) / poleHeight) * Math.cos(bendDirection);
+            const attachY = attachmentY + (maxBend * bendFactor * (attachmentY - baseY + poleHeight) / poleHeight) * Math.sin(bendDirection);
+            ctx.beginPath();
+            ctx.arc(attachX, attachY, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = 'black';
+            ctx.fill();
+
+            // Teken vectoren vanaf aangrijpingspunt
+            drawVector(attachX, attachY, vec1.x * 2, vec1.y * 2, 'blue'); // Schaal voor zichtbaarheid
+            drawVector(attachX, attachY, vec2.x * 2, vec2.y * 2, 'green');
+
+            // Teken parallellogram
+            drawParallelogram(attachX, attachY, vec1.x * 2, vec1.y * 2, vec2.x * 2, vec2.y * 2);
+
+            // Teken resultante
+            drawVector(attachX, attachY, resultant.x * 2, resultant.y * 2, 'red');
+        }
+
+        function drawCube(x, y, size) {
+            // Voorkant
+            ctx.fillStyle = '#8B4513'; // Bruin
+            ctx.fillRect(x, y, size, size / 2);
+
+            // Bovenkant
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + size / 2, y - size / 2);
+            ctx.lineTo(x + size + size / 2, y - size / 2);
+            ctx.lineTo(x + size, y);
+            ctx.closePath();
+            ctx.fillStyle = '#A0522D';
+            ctx.fill();
+
+            // Zijkant
+            ctx.beginPath();
+            ctx.moveTo(x + size, y);
+            ctx.lineTo(x + size + size / 2, y - size / 2);
+            ctx.lineTo(x + size + size / 2, y + size / 2 - size / 2);
+            ctx.lineTo(x + size, y + size / 2);
+            ctx.closePath();
+            ctx.fillStyle = '#A0522D';
+            ctx.fill();
+        }
+
+        function drawBentPole(startX, startY, height, bendFactor, direction) {
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            const controlX = startX + (maxBend * bendFactor) * Math.cos(direction) / 2;
+            const controlY = startY - height / 2;
+            const endX = startX + (maxBend * bendFactor) * Math.cos(direction);
+            const endY = startY - height + (maxBend * bendFactor) * Math.sin(direction);
+            ctx.quadraticCurveTo(controlX, controlY, endX, endY);
+            ctx.strokeStyle = '#808080'; // Grijs voor mast
+            ctx.lineWidth = 10;
+            ctx.stroke();
+        }
+
+        function drawFlag(x, y) {
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + 50, y - 10);
+            ctx.lineTo(x + 30, y - 30);
+            ctx.lineTo(x, y - 20);
+            ctx.closePath();
+            ctx.fillStyle = 'red';
+            ctx.fill();
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        function drawVector(startX, startY, dx, dy, color) {
+            const headlen = 10;
+            const angle = Math.atan2(dy, dx);
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(startX + dx, startY + dy);
+            ctx.lineTo(startX + dx - headlen * Math.cos(angle - Math.PI / 6), startY + dy - headlen * Math.sin(angle - Math.PI / 6));
+            ctx.moveTo(startX + dx, startY + dy);
+            ctx.lineTo(startX + dx - headlen * Math.cos(angle + Math.PI / 6), startY + dy - headlen * Math.sin(angle + Math.PI / 6));
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        }
+
+        function drawParallelogram(startX, startY, dx1, dy1, dx2, dy2) {
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(startX + dx1, startY + dy1);
+            ctx.lineTo(startX + dx1 + dx2, startY + dy1 + dy2);
+            ctx.lineTo(startX + dx2, startY + dy2);
+            ctx.closePath();
+            ctx.strokeStyle = 'purple';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Initial draw
+        draw();
+    </script>
+</body>
+</html>

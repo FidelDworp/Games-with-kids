@@ -41,10 +41,13 @@
 
         // Basis instellingen
         const baseX = 300; // Midden van de canvas
-        const baseY = 500; // Basis van de vlaggemast
-        const poleHeight = 300; // Hoogte van de vlaggemast
-        const attachmentY = baseY - poleHeight + 50; // Aangrijpingspunt onder de vlag
+        const baseY = 500; // Basis van de vlaggemast (bodem van kubus)
+        const poleHeight = 300; // Totale hoogte van de vlaggemast
         const cubeSize = 100; // Grootte van de kubus basis
+        const fixedY = baseY - cubeSize / 2; // Top van de kubus, waar buiging begint
+        const effectiveL = poleHeight - (cubeSize / 2); // Effectieve lengte voor buiging
+        const attachmentY = baseY - poleHeight + 50; // Aangrijpingspunt onder de vlag
+        const segments = 20; // Aantal segmenten voor buigcurve
 
         // Vector richtingen (vast, maar verschillend: bv. een naar links-boven, een naar rechts-boven)
         const angle1 = -Math.PI / 6; // -30 graden (links-boven)
@@ -72,11 +75,6 @@
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Teken transparante kubus basis
-            ctx.globalAlpha = 0.5;
-            drawCube(baseX - cubeSize / 2, baseY - cubeSize / 2, cubeSize);
-            ctx.globalAlpha = 1.0;
-
             // Bereken vectoren
             const vec1 = { x: force1 * Math.cos(angle1), y: force1 * Math.sin(angle1) };
             const vec2 = { x: force2 * Math.cos(angle2), y: force2 * Math.sin(angle2) };
@@ -88,19 +86,56 @@
             // Buigingsfactor (0-1)
             const bendFactor = Math.min(resultantMagnitude / 100, 1); // Max bij 100 daN
             const bendDirection = Math.atan2(resultant.y, resultant.x); // Richting van buiging
+            const deltaMax = maxBend * bendFactor;
 
-            // Teken gebogen vlaggemast (voet vast, buigt erboven)
-            drawBentPole(baseX, baseY, poleHeight, bendFactor, bendDirection);
+            // Teken vaste voet in kubus
+            ctx.beginPath();
+            ctx.moveTo(baseX, baseY);
+            ctx.lineTo(baseX, fixedY);
+            ctx.strokeStyle = '#808080'; // Grijs voor mast
+            ctx.lineWidth = 10;
+            ctx.stroke();
 
-            // Teken Belgische vlag bovenaan (meebewegend met top)
-            const flagX = baseX + (maxBend * bendFactor) * Math.cos(bendDirection);
-            const flagY = baseY - poleHeight + (maxBend * bendFactor) * Math.sin(bendDirection);
-            drawBelgianFlag(flagX, flagY);
+            // Teken transparante kubus
+            ctx.globalAlpha = 0.5;
+            drawCube(baseX - cubeSize / 2, baseY - cubeSize / 2, cubeSize);
+            ctx.globalAlpha = 1.0;
 
-            // Teken aangrijpingspunt (geïnterpoleerd op de buiging)
-            const attachRatio = (baseY - attachmentY) / poleHeight; // Proportie vanaf basis (0 basis, 1 top)
-            const attachX = baseX + (maxBend * bendFactor * attachRatio) * Math.cos(bendDirection);
-            const attachY = attachmentY + (maxBend * bendFactor * attachRatio) * Math.sin(bendDirection);
+            // Teken gebogen deel van vlaggemast
+            ctx.beginPath();
+            ctx.moveTo(baseX, fixedY);
+            for (let i = 1; i <= segments; i++) {
+                const frac = i / segments;
+                const s = frac * effectiveL;
+                const v = (deltaMax / (2 * Math.pow(effectiveL, 3))) * Math.pow(s, 2) * (3 * effectiveL - s);
+                const px = baseX + v * Math.cos(bendDirection);
+                const py = fixedY - s + v * Math.sin(bendDirection);
+                ctx.lineTo(px, py);
+            }
+            ctx.strokeStyle = '#808080';
+            ctx.lineWidth = 10;
+            ctx.stroke();
+
+            // Bereken positie top (flag)
+            const sTop = effectiveL;
+            const vTop = (deltaMax / (2 * Math.pow(effectiveL, 3))) * Math.pow(sTop, 2) * (3 * effectiveL - sTop);
+            const flagX = baseX + vTop * Math.cos(bendDirection);
+            const flagY = fixedY - sTop + vTop * Math.sin(bendDirection);
+
+            // Bereken helling aan top voor vlag rotatie
+            const dv_ds_top = (deltaMax / (2 * Math.pow(effectiveL, 3))) * (6 * effectiveL * sTop - 3 * Math.pow(sTop, 2));
+            const dx_ds = dv_ds_top * Math.cos(bendDirection);
+            const dy_ds = -1 + dv_ds_top * Math.sin(bendDirection);
+            const tangentAngle = Math.atan2(dy_ds, dx_ds);
+
+            // Teken Belgische vlag (geroteerd volgens helling top)
+            drawBelgianFlag(flagX, flagY, tangentAngle);
+
+            // Bereken positie aangrijpingspunt
+            const sAttach = fixedY - attachmentY;
+            const vAttach = (deltaMax / (2 * Math.pow(effectiveL, 3))) * Math.pow(sAttach, 2) * (3 * effectiveL - sAttach);
+            const attachX = baseX + vAttach * Math.cos(bendDirection);
+            const attachY = fixedY - sAttach + vAttach * Math.sin(bendDirection);
             ctx.beginPath();
             ctx.arc(attachX, attachY, 5, 0, 2 * Math.PI);
             ctx.fillStyle = 'black';
@@ -143,40 +178,33 @@
             ctx.fill();
         }
 
-        function drawBentPole(startX, startY, height, bendFactor, direction) {
-            ctx.beginPath();
-            ctx.moveTo(startX, startY);
-            const controlX = startX + (maxBend * bendFactor) * Math.cos(direction) / 2;
-            const controlY = startY - height / 2;
-            const endX = startX + (maxBend * bendFactor) * Math.cos(direction);
-            const endY = startY - height + (maxBend * bendFactor) * Math.sin(direction);
-            ctx.quadraticCurveTo(controlX, controlY, endX, endY);
-            ctx.strokeStyle = '#808080'; // Grijs voor mast
-            ctx.lineWidth = 10;
-            ctx.stroke();
-        }
-
-        function drawBelgianFlag(x, y) {
+        function drawBelgianFlag(x, y, rotation) {
             const flagWidth = 60;
             const flagHeight = 40;
             const stripeWidth = flagWidth / 3;
 
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(rotation + Math.PI / 2); // Pas rotatie toe om vlag te alignen met masttop richting
+
             // Zwarte strook (links, aan de stok)
             ctx.fillStyle = 'black';
-            ctx.fillRect(x, y, stripeWidth, flagHeight);
+            ctx.fillRect(0, 0, stripeWidth, flagHeight);
 
             // Gele strook (midden)
             ctx.fillStyle = 'yellow';
-            ctx.fillRect(x + stripeWidth, y, stripeWidth, flagHeight);
+            ctx.fillRect(stripeWidth, 0, stripeWidth, flagHeight);
 
             // Rode strook (rechts)
             ctx.fillStyle = 'red';
-            ctx.fillRect(x + 2 * stripeWidth, y, stripeWidth, flagHeight);
+            ctx.fillRect(2 * stripeWidth, 0, stripeWidth, flagHeight);
 
             // Rand om de vlag
             ctx.strokeStyle = 'black';
             ctx.lineWidth = 1;
-            ctx.strokeRect(x, y, flagWidth, flagHeight);
+            ctx.strokeRect(0, 0, flagWidth, flagHeight);
+
+            ctx.restore();
         }
 
         function drawVector(startX, startY, dx, dy, color) {

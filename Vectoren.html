@@ -10,6 +10,7 @@
         .controls { margin: 20px; }
         .slider-container { margin: 10px; }
         label { font-weight: bold; }
+        .explanation { max-width: 600px; text-align: justify; margin: 20px; }
     </style>
 </head>
 <body>
@@ -25,6 +26,9 @@
             <label for="force2">Kracht 2 (0-100 daN): <span id="force2Value">50</span></label>
             <input type="range" id="force2" min="0" max="100" value="50">
         </div>
+    </div>
+    <div class="explanation">
+        <p>De samenstelling van vectoren volgt de parallellogramregel, die gebaseerd is op de stelling van Thales toegepast op vectoren. Volgens deze regel vormen twee vectoren de zijden van een parallellogram, en de resultante vector is de diagonaal van dit parallellogram. Door de lengtes van de vectoren aan te passen met de schuifregelaars, zie je hoe de resultante verandert in grootte en richting, wat de buiging van de vlaggemast beïnvloedt.</p>
     </div>
 
     <script>
@@ -68,8 +72,10 @@
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Teken kubus basis
+            // Teken transparante kubus basis
+            ctx.globalAlpha = 0.5;
             drawCube(baseX - cubeSize / 2, baseY - cubeSize / 2, cubeSize);
+            ctx.globalAlpha = 1.0;
 
             // Bereken vectoren
             const vec1 = { x: force1 * Math.cos(angle1), y: force1 * Math.sin(angle1) };
@@ -83,17 +89,18 @@
             const bendFactor = Math.min(resultantMagnitude / 100, 1); // Max bij 100 daN
             const bendDirection = Math.atan2(resultant.y, resultant.x); // Richting van buiging
 
-            // Teken gebogen vlaggemast
+            // Teken gebogen vlaggemast (voet vast, buigt erboven)
             drawBentPole(baseX, baseY, poleHeight, bendFactor, bendDirection);
 
-            // Teken vlag bovenaan (aangepast aan buiging)
+            // Teken Belgische vlag bovenaan (meebewegend met top)
             const flagX = baseX + (maxBend * bendFactor) * Math.cos(bendDirection);
             const flagY = baseY - poleHeight + (maxBend * bendFactor) * Math.sin(bendDirection);
-            drawFlag(flagX, flagY);
+            drawBelgianFlag(flagX, flagY);
 
-            // Teken aangrijpingspunt
-            const attachX = baseX + (maxBend * bendFactor * (attachmentY - baseY + poleHeight) / poleHeight) * Math.cos(bendDirection);
-            const attachY = attachmentY + (maxBend * bendFactor * (attachmentY - baseY + poleHeight) / poleHeight) * Math.sin(bendDirection);
+            // Teken aangrijpingspunt (geïnterpoleerd op de buiging)
+            const attachRatio = (baseY - attachmentY) / poleHeight; // Proportie vanaf basis (0 basis, 1 top)
+            const attachX = baseX + (maxBend * bendFactor * attachRatio) * Math.cos(bendDirection);
+            const attachY = attachmentY + (maxBend * bendFactor * attachRatio) * Math.sin(bendDirection);
             ctx.beginPath();
             ctx.arc(attachX, attachY, 5, 0, 2 * Math.PI);
             ctx.fillStyle = 'black';
@@ -149,18 +156,27 @@
             ctx.stroke();
         }
 
-        function drawFlag(x, y) {
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.lineTo(x + 50, y - 10);
-            ctx.lineTo(x + 30, y - 30);
-            ctx.lineTo(x, y - 20);
-            ctx.closePath();
+        function drawBelgianFlag(x, y) {
+            const flagWidth = 60;
+            const flagHeight = 40;
+            const stripeWidth = flagWidth / 3;
+
+            // Zwarte strook (links, aan de stok)
+            ctx.fillStyle = 'black';
+            ctx.fillRect(x, y, stripeWidth, flagHeight);
+
+            // Gele strook (midden)
+            ctx.fillStyle = 'yellow';
+            ctx.fillRect(x + stripeWidth, y, stripeWidth, flagHeight);
+
+            // Rode strook (rechts)
             ctx.fillStyle = 'red';
-            ctx.fill();
+            ctx.fillRect(x + 2 * stripeWidth, y, stripeWidth, flagHeight);
+
+            // Rand om de vlag
             ctx.strokeStyle = 'black';
             ctx.lineWidth = 1;
-            ctx.stroke();
+            ctx.strokeRect(x, y, flagWidth, flagHeight);
         }
 
         function drawVector(startX, startY, dx, dy, color) {

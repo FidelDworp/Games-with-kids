@@ -1,4 +1,4 @@
-//v6 - 31jul26
+//v7 - 31jul26
 
 <!DOCTYPE html>
 <html lang="nl">
@@ -663,11 +663,12 @@ function step(){
   // gaven). Vereenvoudigde exponentiële naijling i.p.v. een letterlijke
   // transportvertraging: bij lage PWM beweegt het water trager door de
   // leiding, dus reageert de sensor trager op wat er in de collector gebeurt.
-  // Bevriest terwijl de pomp stilstaat (geen doorstroming = geen nieuwe info).
-  if (pwmValue >= 1) {
-    const deadTimeGain = Math.min(1, Math.max(0.05, pwmValue / 60));
-    TCsensedLag += deadTimeGain * (TC - TCsensedLag);
-  }
+  // BUGFIX: mag NOOIT volledig bevriezen bij PWM=0 - anders kan dT nooit meer
+  // boven DT_START komen (want dat hangt net af van deze waarde) en start de
+  // pomp nooit meer. Bij PWM=0 gebruiken we daarom de trage ondergrens (0.05)
+  // i.p.v. helemaal stil te vallen.
+  const deadTimeGain = Math.min(1, Math.max(0.05, pwmValue / 60));
+  TCsensedLag += deadTimeGain * (TC - TCsensedLag);
 
   let sensorTC = TCsensedLag;
   if (spikeRemaining > 0) {

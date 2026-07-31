@@ -1,4 +1,4 @@
-//v7 - 31jul26
+//v8 - 31jul26
 
 <!DOCTYPE html>
 <html lang="nl">
@@ -222,6 +222,7 @@
   button:hover{ border-color:var(--hot); }
   button:focus-visible, input:focus-visible{ outline:2px solid var(--hot); outline-offset:2px; }
   button.primary{ border-color:var(--hot); color:var(--hot); }
+  button.toggle-on{ border-color:var(--flow); color:var(--flow); background:rgba(143,224,138,0.10); }
 
   .readouts{
     display:grid;
@@ -406,6 +407,7 @@
     </div>
     <div class="btnrow">
       <button class="primary" id="cloudBtn">☁ Wolk voorbij</button>
+      <button id="cloudToggleBtn">🌤 Wisselende bewolking: UIT</button>
       <button id="resetBtn">↺ Reset</button>
       <button id="pauseBtn">⏸ Pauze</button>
     </div>
@@ -491,6 +493,8 @@ let simMinutes = 0;
 let stagnantMinutes = 999;
 let spikeValue = 0, spikeRemaining = 0;
 let cloudUntil = -1, cloudSaved = null;
+let naturalClouds = false;
+let cloudPhase = 0, cloudNoise = 0;
 let paused = false;
 let accMin = 0, lastFrameTs = null;
 
@@ -534,6 +538,12 @@ document.getElementById('cloudBtn').addEventListener('click', ()=>{
   syncLabels();
   cloudUntil = simMinutes + 5;
 });
+document.getElementById('cloudToggleBtn').addEventListener('click', (e)=>{
+  naturalClouds = !naturalClouds;
+  cloudPhase = 0; cloudNoise = 0;
+  e.target.textContent = naturalClouds ? '🌤 Wisselende bewolking: AAN' : '🌤 Wisselende bewolking: UIT';
+  e.target.classList.toggle('toggle-on', naturalClouds);
+});
 
 function resetSim(){
   TC = +bothEl.value; TB = +bothEl.value;
@@ -545,6 +555,7 @@ function resetSim(){
   simMinutes = 0; stagnantMinutes = 999;
   spikeValue = 0; spikeRemaining = 0;
   cloudUntil = -1; cloudSaved = null;
+  cloudPhase = 0; cloudNoise = 0;
   tempSeries = {tc:[], tb:[]}; pwmSeries = [];
   logLines = [];
   logMsg('STOP', 'Simulatie gereset.');
@@ -645,7 +656,20 @@ function step(){
     cloudUntil = -1;
   }
 
-  const sunTarget = +sunEl.value;
+  const baseSun = +sunEl.value;
+  let sunTarget = baseSun;
+  if (naturalClouds) {
+    // Trage golving (grotere, langzaam voorbijtrekkende wolkenpartijen) +
+    // een kleine, willekeurige "gril" (kortere, onregelmatige schommelingen),
+    // samen begrensd tot [0, 100]. De schuifknop zelf blijft staan op de
+    // basiswaarde die je instelde - enkel de effectieve zonkracht schommelt
+    // eromheen, zoals bij echt, wisselvallig weer.
+    cloudPhase += 0.15;
+    const wave = Math.sin(cloudPhase) * 0.22 * baseSun;
+    cloudNoise += (Math.random() - 0.5) * 5;
+    cloudNoise = Math.max(-15, Math.min(15, cloudNoise));
+    sunTarget = Math.max(0, Math.min(100, baseSun + wave + cloudNoise));
+  }
   const PWM_MIN = +pwmMinEl.value;
 
   // --- Fysica (gebruikt de PWM van de vórige cyclus, net als de echte telemetrie-lag) ---

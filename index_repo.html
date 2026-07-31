@@ -1,0 +1,101 @@
+// index_repo.html = Dit is een mooie index lijst van deze repository die telkens moet aangepast worden met nieuwe bestanden. De url van dit bestand is: "https://fideldworp.github.io/Games-with-kids/index_repo.html"
+
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spelletjes met de kleinkinderen</title>
+<style>
+  :root{
+    --bg:     #10161d;
+    --panel:  #1a222c;
+    --line:   #2c3948;
+    --text:   #e7edf3;
+    --muted:  #7d8ea1;
+    --accent: #ff8a3d;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0;
+    min-height:100vh;
+    background:
+      radial-gradient(1000px 500px at 15% -10%, #1a2735 0%, transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:"Segoe UI", system-ui, sans-serif;
+    padding:40px 24px;
+  }
+  .wrap{ max-width:640px; margin:0 auto; }
+  h1{ font-size:26px; margin:0 0 6px; }
+  h1 .dot{ color:var(--accent); }
+  p.sub{ color:var(--muted); margin:0 0 32px; font-size:14.5px; }
+  .grid{ display:grid; gap:12px; }
+  a.card{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:16px 18px;
+    color:var(--text);
+    text-decoration:none;
+    transition:border-color .15s;
+  }
+  a.card:hover, a.card:focus-visible{ border-color:var(--accent); outline:none; }
+  a.card .emoji{ font-size:24px; }
+  a.card .title{ font-weight:600; font-size:15.5px; }
+  a.card .by{ color:var(--muted); font-size:12.5px; margin-top:2px; }
+  footer{ margin-top:36px; color:var(--muted); font-size:12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Spelletjes<span class="dot">.</span></h1>
+  <p class="sub">Een verzameling zelfgemaakte browserspelletjes en projecten om samen mee te spelen en te experimenteren.</p>
+
+  <div class="grid">
+    <a class="card" href="Leon/ECO_Digital_Twin_31jul26.html">
+      <span class="emoji">☀️</span>
+      <div>
+        <div class="title">Zonnecollector Digital Twin</div>
+        <div class="by">met Leon</div>
+      </div>
+    </a>
+    <a class="card" href="BouncingBall.html">
+      <span class="emoji">🏀</span>
+      <div><div class="title">Bouncing Ball</div></div>
+    </a>
+    <a class="card" href="Rivier.html">
+      <span class="emoji">🌊</span>
+      <div><div class="title">Rivier</div></div>
+    </a>
+    <a class="card" href="Vectoren.html">
+      <span class="emoji">📐</span>
+      <div><div class="title">Vectoren</div></div>
+    </a>
+    <a class="card" href="Windmolen.html">
+      <span class="emoji">🌬️</span>
+      <div><div class="title">Windmolen</div></div>
+    </a>
+    <a class="card" href="Windmolen%203D.html">
+      <span class="emoji">🌀</span>
+      <div><div class="title">Windmolen 3D</div></div>
+    </a>
+    <a class="card" href="glitterdemo.html">
+      <span class="emoji">✨</span>
+      <div><div class="title">Glitterdemo</div></div>
+    </a>
+    <a class="card" href="rotatingcube.html">
+      <span class="emoji">🎲</span>
+      <div><div class="title">Rotating Cube</div></div>
+    </a>
+  </div>
+
+  <footer>
+    Bookmark deze pagina: <code>fideldworp.github.io/Games-with-kids</code> — vandaar kom je bij alles.
+  </footer>
+</div>
+</body>
+</html>

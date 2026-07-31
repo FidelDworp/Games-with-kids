@@ -10,7 +10,7 @@ Dit is een **kwalitatief correct, niet kwantitatief exact** model. Het doel is i
 
 ## De regellogica
 
-De simulator draait een JavaScript-vertaling van exact dezelfde `solarPump()`-logica als de Photon-sketch (versie 30jul26), met dezelfde vijf fasen:
+De simulator draait een JavaScript-vertaling van exact dezelfde `solarPump()`-logica als de Photon-sketch, met dezelfde vijf fasen:
 
 ```
 [OPSTART]     dT_gefilterd > 2.0°C (start) → open-lus ramp, losgekoppeld van de PID:
@@ -25,34 +25,58 @@ De simulator draait een JavaScript-vertaling van exact dezelfde `solarPump()`-lo
 
 `dT_gefilterd` is een EMA-filter (α=0,3/min) op de ruwe dT, precies zoals in de echte sketch — dat dempt de "hete-plug"-transiënt vóór de PID hem ziet.
 
+**Belangrijk:** `pidPrevError` (nodig voor de D-term) blijft ook tíjdens de OPSTART-ramp elke minuut meelopen. Zonder dat zou de D-term bij de eerste REGIME-stap na een herstart een kunstmatige piek zien — een vergelijking met een fout van 3 minuten geleden in plaats van de vorige minuut — die groeit mét Kd, in plaats van te dempen zoals een D-term hoort te doen. Deze fout zat in de allereerste versie en is intussen gefixt.
+
 ## Het fysisch model
 
 Twee gekoppelde thermische massa's, plus een klein extra effect voor de sensor-eigenaardigheid die ons wekenlang bezighield:
 
-- **Collector (Tsol)** warmt op richting de ingestelde "zon-intensiteit" (een drijvende evenwichtstemperatuur, geen instraling in W/m²) en koelt af naarmate de pomp warmte onttrekt, evenredig met PWM × (Tsol − BotH).
-- **Boiler-onderlaag (BotH)** wint een fractie van die onttrokken warmte, en verliest traag warmte aan omgeving/verbruik.
+- **Collector (Tsol)** warmt op richting de ingestelde "Tsol — Zon-intensiteit" (een drijvende evenwichtstemperatuur, geen instraling in W/m²) en koelt af naarmate de pomp warmte onttrekt, evenredig met PWM × (Tsol − BotH). De collector-rechthoek in het schema kleurt live mee, van blauw (≤30°C) tot felrood (≥100°C).
+- **Boiler-onderlaag (BotH)** wint een fractie van die onttrokken warmte, en verliest traag warmte aan omgeving/verbruik. Kleurt op dezelfde blauw-rode schaal mee.
 - **"Hete-plug"-effect**: zolang de pomp stilstaat, bouwt zich een fictieve "opstuwing" op die evenredig is met de stilstandsduur. Bij het herstarten van de pomp geeft dit een korte (~2 minuten), afnemende piek bovenop de werkelijke collectortemperatuur — exact het verschijnsel dat we in de echte data zagen (dT die in één minuut van 20°C naar 36°C sprong, vlak na een herstart).
+- **Temperatuur na de spiraal** (in de BotH-laag): puur illustratief — hoe lager de PWM, hoe meer warmte het water per doorgang afgeeft (langere contacttijd in de spiraal), dus hoe dichter de uittemperatuur bij BotH ligt i.p.v. bij Tsol. Formule: `BotH + (Tsol − BotH) × (1 − e^(−PWM/60))`.
 
 Zie de constanten `HEAT_GAIN`, `FLOW_COOL`, `BOIL_TRANSFER`, `AMBIENT_LOSS` en `spikeMagnitudeFor()` bovenaan het script in `index.html` — dat zijn de knoppen om het model zelf bij te stellen als het gedrag niet aanvoelt zoals de echte installatie.
 
+## Het circuitschema (rechtsboven)
+
+Een schematische, levende weergave van collector, boiler en pomp, opgebouwd uit:
+
+- **Collector**: bovenaan, met een zon-icoontje en een kleur die met Tsol meeloopt. Toont de Tsol-waarde op de uitgang (rechts).
+- **Boiler**: de helft zo breed als de collector en er precies onder gecentreerd. Zes lagen, van boven naar onder: **TopH, TopL, MidH, MidL, BotH, BotL**. Enkel BotH wordt effectief gesimuleerd (en toont dus een live temperatuur); de vijf andere zijn illustratieve labels.
+- **Leidingen**: symmetrisch getekend — de hete leiding daalt recht naar beneden vanaf de collector-uitgang (rechts) en knikt pas helemaal onderaan naar de boiler; de retourleiding stijgt op dezelfde manier recht omhoog vanaf de boiler (links) en knikt pas helemaal bovenaan naar de collector-ingang. De streepjes bewegen mee, sneller bij hogere PWM, stil bij PWM=0.
+- **Pomp**: op de retourleiding, met een live PWM-cijfer ernaast.
+- **Voor/na de spiraal**: enkel de temperatuur ná de spiraal (afgekoeld, blauw) wordt apart getoond naast de BotH-laag — de temperatuur vóór de spiraal is gewoon Tsol zelf en staat al bovenaan bij de collector, dus die werd niet nodeloos verdubbeld.
+
+## Info-knopjes bij Kp/Ki/Kd
+
+Elke PID-parameter heeft een klein ⓘ-icoontje naast het label. Hover toont een korte teaser, klikken opent een uitlegvenster met wat de term doet en wat er gebeurt bij verhogen/verlagen — met concrete, zelf geverifieerde voorbeeldcijfers uit tests van deze exacte regellogica. De simulatie pauzeert automatisch zolang het venster open staat, en herneemt nadien de vorige pauzestatus. Sluiten kan via het kruisje, door buiten het venster te klikken, of met Escape.
+
 ## Bediening
 
-- **Zon-intensiteit**: de "kracht van de zon" op dit moment — hoger = de collector trekt naar een hogere evenwichtstemperatuur.
-- **BotH**: sleep om de boilertemperatuur onmiddellijk te wijzigen (bv. na warmwaterverbruik).
-- **Kp / Ki / Kd**: dezelfde drie PID-knoppen als in de echte sketch.
-- **Snelheid**: hoeveel gesimuleerde minuten er per reële seconde verstrijken.
-- **☁ Wolk voorbij**: laat de zon-intensiteit 5 gesimuleerde minuten dalen en herstelt dan vanzelf — handig om te zien hoe de regeling op een voorbijgaande dip reageert.
-- **↺ Reset**: begint opnieuw vanaf koude start.
+- **Tsol — Zon-intensiteit**: de evenwichtstemperatuur waar de collector geleidelijk naartoe trekt — niet Tsol zelf (die volgt met vertraging, zoals in het echie).
+- **BotH — boilertemperatuur nu**: sleep om de boilertemperatuur onmiddellijk te wijzigen (bv. na warmwaterverbruik). De schuifknop volgt nadien ook automatisch de live gesimuleerde waarde, behalve terwijl je hem zelf vasthoudt.
+- **Kp / Ki / Kd**: dezelfde drie PID-knoppen als in de echte sketch, elk met een ⓘ-info-knop.
+- **Snelheid**: hoeveel gesimuleerde minuten er per reële seconde verstrijken (verandert niets aan het regelgedrag zelf — enkel aan hoe snel je het ziet gebeuren, want elke stap blijft intern exact 1 gesimuleerde minuut).
+- **☁ Wolk voorbij**: laat de zon-intensiteit 5 gesimuleerde minuten dalen en herstelt dan vanzelf.
+- **↺ Reset**: begint opnieuw vanaf koude start. Alle sliders starten standaard op hun meest linkse (laagste) waarde, zodat je zelf van nul kan opbouwen.
 
 ## Openstaande vragen / Roadmap
-
-Dingen die we nog kunnen toevoegen naarmate het project vordert:
 
 - [ ] Nachtblokkering (07u-21u) simuleren met een eigen kloklijn, los van de zon-intensiteit-slider
 - [ ] Een "vergelijk twee instellingen naast elkaar"-modus (bv. huidige Kp/Ki/Kd naast een voorstel)
 - [ ] Kalibratie van de fysica-constanten op een echte, geëxporteerde dag data (curve fitting) i.p.v. "aanvoelt goed"
 - [ ] Exporteren van een simulatiesessie als CSV, in hetzelfde formaat als de echte Google Sheets-log, om ze naast elkaar te kunnen leggen
-- [ ] Mobiele lay-out verder verfijnen (grafieken worden nu vrij klein op smalle schermen)
+- [ ] Mobiele lay-out verder verfijnen (grafieken en schema worden vrij klein op smalle schermen)
+- [ ] Eventueel ook live temperaturen simuleren voor de vijf niet-gemodelleerde boilerlagen (TopH/TopL/MidH/MidL/BotL), i.p.v. enkel BotH
+
+## Versiegeschiedenis (samengevat)
+
+- **v1**: eerste simulator — sliders voor Tsun/BotH/Kp/Ki/Kd, temperatuur- en PWM-grafiek (incl. dT-lijn), consolevenster met uitleg per fase.
+- **v2**: dT-lijn en bijhorende rechter-as uit de temperatuurgrafiek verwijderd; linker-as vast op 0-100°C; header versmald en een eerste circuitschema toegevoegd (collector, boiler met 6 lagen, pomp).
+- **v3**: boiler verkleind (helft van de collectorbreedte) en gecentreerd; voor/na-spiraal-temperaturen gesplitst in rood/blauw links-rechts van de BotH-laag; BotH-temperatuur zelf zichtbaar gemaakt; zon-icoon en temperatuur-gekleurde rechthoeken toegevoegd voor collector én BotH.
+- **v4**: D-term-bug gefixt (kunstmatige piek bij de OPSTART→REGIME-overgang); ⓘ-info-knoppen met uitlegvensters toegevoegd bij Kp/Ki/Kd.
+- **v5**: BotH-slider volgt nu ook live de gesimuleerde waarde; het overbodige dubbele Tsol-label verplaatst/samengevoegd bovenaan bij de collector; leidingen links/rechts symmetrisch getekend (pomp mee verschoven); alle sliders starten voortaan op hun laagste waarde.
 
 ## Herkomst
 

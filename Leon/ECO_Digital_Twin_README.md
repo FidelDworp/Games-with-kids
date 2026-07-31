@@ -61,8 +61,23 @@ Elke PID-parameter heeft een klein ⓘ-icoontje naast het label. Hover toont een
 - **☁ Wolk voorbij**: laat de zon-intensiteit 5 gesimuleerde minuten dalen en herstelt dan vanzelf.
 - **↺ Reset**: begint opnieuw vanaf koude start. Alle sliders starten standaard op hun meest linkse (laagste) waarde, zodat je zelf van nul kan opbouwen.
 
+## Lessen uit de echte-hardware-tests (28-31 juli)
+
+Deze simulator ontstond parallel aan een intensief traject van dag-tot-dag PID-tuning op de echte Photon-installatie. Een aantal harde lessen daaruit, die ook de latere versies van de simulator hebben beïnvloed:
+
+- **Een vaste "kortsluiting" (bv. `Tsun>75°C → PWM=180`) kan een goed werkende PID volledig ondermijnen.** Op 29 juli bleek zo'n vaste override, losgekoppeld van de PID, een griezelig regelmatige zaagtand van 11 minuten te veroorzaken — telkens crashend exact op het moment dat de drempel overschreden werd. Les: laat de PID een heel bereik consequent zelf regelen, i.p.v. hem op een drempel te laten "overrulen".
+- **Een D-term-bug (de "derivative kick") kan ontstaan bij een fase-overgang.** Als `pidPrevError` niet ook tíjdens een open-lus-fase (zoals OPSTART) blijft meelopen, vergelijkt de D-term bij de eerste PID-stap erna met een veel oudere fout dan de vorige minuut — dat geeft een kunstmatige piek die groeit mét Kd, het omgekeerde van wat een D-term hoort te doen. Deze bug is eerst in de simulator gevonden en gefixt (30-31 juli), en pas nadien ontdekt dat ze **ook in de echte Photon-sketch zat**, nooit gefixt vóór 31 juli. Les: een bug gevonden in de simulator moet je expliciet terugporten naar de echte code — ze delen dezelfde logica, maar niet automatisch dezelfde bugfixes.
+- **Verschillende PID-instellingen die toch hetzelfde patroon geven, wijzen op een niet-PID-oorzaak.** Op 31 juli gaven vier duidelijk verschillende Kp/Ki/Kd-combinaties (3/0,15/0 · 4/0,15/1,2 · 6/0,5/1,2 · 8/0,6/1,2) allemaal hetzelfde ~9-11-minuten-slingerpatroon. Dat is de vingerafdruk van een **dode tijd** (transportvertraging) in het systeem, niet van een verkeerd afgestelde regelaar — zie de volgende sectie.
+- **Bij twijfel: isoleer één variabele per test.** Zowel op de hardware als in de simulator bleek keer op keer dat het tegelijk wijzigen van meerdere parameters (zoals op 28 juli, toen `PWM_MIN`, `DT_TARGET` en de hele STOP-logica in één keer veranderden) het achteraf onmogelijk maakt om te weten wélke wijziging welk effect had.
+
+## Dode tijd (transportvertraging) — nieuw in het model
+
+Sinds de ontdekking hierboven simuleert het model ook een **flow-afhankelijke vertraging** tussen de werkelijke collectortemperatuur en wat de sensor "voelt": bij een lage PWM (traag debiet) beweegt het water trager door de leiding, dus duurt het langer vooraleer een verandering in de collector zich laat voelen bij de sensor; bij een hoge PWM is die vertraging kort. Dit is bewust een **vereenvoudigde, exponentieel-naijlende benadering**, geen letterlijke leidingvertraging (die zou een "geheugen" van voorbije waarden vereisen) — maar ze toont wel hetzelfde kwalitatieve gedrag: zet `PWM_MIN` laag en de vertraging wordt groot genoeg om een zelfstandige slingering te veroorzaken, ongeacht hoe je Kp/Ki/Kd instelt; zet `PWM_MIN` hoog (zoals op 17 juli) en de vertraging wordt kort genoeg om weg te regelen.
+
 ## Openstaande vragen / Roadmap
 
+- [x] Dode tijd / transportvertraging simuleren (31 juli — zie hierboven), als vereenvoudigde flow-afhankelijke naijling
+- [ ] De dode-tijd-benadering vervangen door een echte, vaste-lengte transportvertraging (delay-buffer) i.p.v. een exponentiële naijling, voor wie het verschil tussen de twee zelf wil voelen
 - [ ] Nachtblokkering (07u-21u) simuleren met een eigen kloklijn, los van de zon-intensiteit-slider
 - [ ] Een "vergelijk twee instellingen naast elkaar"-modus (bv. huidige Kp/Ki/Kd naast een voorstel)
 - [ ] Kalibratie van de fysica-constanten op een echte, geëxporteerde dag data (curve fitting) i.p.v. "aanvoelt goed"
@@ -77,6 +92,7 @@ Elke PID-parameter heeft een klein ⓘ-icoontje naast het label. Hover toont een
 - **v3**: boiler verkleind (helft van de collectorbreedte) en gecentreerd; voor/na-spiraal-temperaturen gesplitst in rood/blauw links-rechts van de BotH-laag; BotH-temperatuur zelf zichtbaar gemaakt; zon-icoon en temperatuur-gekleurde rechthoeken toegevoegd voor collector én BotH.
 - **v4**: D-term-bug gefixt (kunstmatige piek bij de OPSTART→REGIME-overgang); ⓘ-info-knoppen met uitlegvensters toegevoegd bij Kp/Ki/Kd.
 - **v5**: BotH-slider volgt nu ook live de gesimuleerde waarde; het overbodige dubbele Tsol-label verplaatst/samengevoegd bovenaan bij de collector; leidingen links/rechts symmetrisch getekend (pomp mee verschoven); alle sliders starten voortaan op hun laagste waarde.
+- **v6**: dode tijd (transportvertraging) toegevoegd als flow-afhankelijke naijling tussen de werkelijke en de gevoelde collectortemperatuur — direct geïnspireerd door de ontdekking op de echte hardware dat vier verschillende PID-instellingen allemaal hetzelfde slingerpatroon gaven.
 
 ## Herkomst
 

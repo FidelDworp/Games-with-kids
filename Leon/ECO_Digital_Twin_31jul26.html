@@ -1,4 +1,4 @@
-// Nieuwe versie
+// Derde versie:
 
 <!DOCTYPE html>
 <html lang="nl">
@@ -70,7 +70,7 @@
     border-radius:10px;
     padding:8px 14px;
   }
-  .schematic svg{ width:100%; height:150px; display:block; }
+  .schematic svg{ width:100%; height:190px; display:block; }
   .schematic text{ font-family:var(--mono); fill:var(--text); }
   .schematic .lbl{ fill:var(--text-muted); font-size:8px; letter-spacing:.3px; }
   .schematic .temp{ font-size:10.5px; font-weight:600; }
@@ -219,44 +219,58 @@
       <p>Vereenvoudigd thermisch model van de ECO-boiler zonnelus, aangestuurd door dezelfde 5-fasen PID-regellogica als de echte Photon-sketch.</p>
     </div>
     <div class="schematic">
-      <svg viewBox="0 0 480 150" xmlns="http://www.w3.org/2000/svg">
-        <!-- Collector bovenaan -->
-        <rect x="150" y="10" width="180" height="30" rx="4" fill="none" stroke="#3a4a5c" stroke-width="1.5"/>
-        <text x="240" y="28" text-anchor="middle" class="box-label">COLLECTOR</text>
-
-        <!-- Leiding: collector-uitgang (rechts) naar spiraal-ingang -->
-        <path class="pipe hot" id="pipeHot" d="M330,25 H400 V60" stroke-dasharray="6 6"/>
-        <text x="405" y="45" class="temp hot" id="svgTsolOut">Tsol 45°</text>
-
-        <!-- Boiler: 6 lagen, BotL onderaan tot TopH bovenaan -->
-        <g id="boiler">
-          <rect x="60" y="55" width="180" height="85" rx="4" fill="none" stroke="#3a4a5c" stroke-width="1.5"/>
-          <!-- lagen, elk 85/6 ≈ 14.17 hoog, van boven (TopH) naar onder (BotL) -->
-          <rect class="layer" x="60" y="55.0" width="180" height="14.17" fill="#212b37"/>
-          <text x="70" y="65" class="lbl">TopH</text>
-          <rect class="layer" x="60" y="69.2" width="180" height="14.17" fill="#1e2733"/>
-          <text x="70" y="79" class="lbl">TopL</text>
-          <rect class="layer" x="60" y="83.3" width="180" height="14.17" fill="#212b37"/>
-          <text x="70" y="93" class="lbl">MidH</text>
-          <rect class="layer" x="60" y="97.5" width="180" height="14.17" fill="#1e2733"/>
-          <text x="70" y="107" class="lbl">MidL</text>
-          <rect class="layer" id="botHLayer" x="60" y="111.7" width="180" height="14.17" fill="#2a2118"/>
-          <text x="70" y="121" class="lbl">BotH — spiraal</text>
-          <rect class="layer" x="60" y="125.8" width="180" height="14.17" fill="#1e2733"/>
-          <text x="70" y="136" class="lbl">BotL</text>
-          <!-- spiraal-icoon binnen de BotH-laag -->
-          <path d="M395,119 q-6,-6 -12,0 q-6,6 -12,0 q-6,-6 -12,0 q-6,6 -12,0" fill="none" stroke="#e8c95c" stroke-width="1.5"/>
+      <svg viewBox="0 0 460 200" xmlns="http://www.w3.org/2000/svg">
+        <!-- Collector bovenaan, kleur volgt Tsol (blauw ≤30° tot felrood ≥100°) -->
+        <text x="240" y="6" text-anchor="middle" class="box-label">COLLECTOR</text>
+        <rect id="collectorRect" x="150" y="10" width="180" height="32" rx="4" stroke="#3a4a5c" stroke-width="1.5" fill="#3a78be"/>
+        <!-- zon-icoon: vaste kleur, herkenbaar ongeacht de rechthoek-kleur -->
+        <g transform="translate(178,26)">
+          <circle r="6" fill="#ffd76a"/>
+          <g stroke="#ffd76a" stroke-width="1.5">
+            <line x1="0" y1="-10" x2="0" y2="-7"/><line x1="0" y1="10" x2="0" y2="7"/>
+            <line x1="-10" y1="0" x2="-7" y2="0"/><line x1="10" y1="0" x2="7" y2="0"/>
+            <line x1="-7" y1="-7" x2="-5" y2="-5"/><line x1="7" y1="7" x2="5" y2="5"/>
+            <line x1="-7" y1="7" x2="-5" y2="5"/><line x1="7" y1="-7" x2="5" y2="-5"/>
+          </g>
         </g>
-        <text x="405" y="112" class="temp hot" id="svgPreSpiral">45°</text>
-        <text x="345" y="150" class="temp cool" id="svgPostSpiral" text-anchor="middle">38°</text>
+        <text x="305" y="30" text-anchor="end" class="temp" id="svgTsolOut"
+              paint-order="stroke" stroke="#10161d" stroke-width="3" stroke-linejoin="round">Tsol 45°</text>
 
-        <!-- Leiding: spiraal-uitgang naar pomp naar collector-ingang (links) -->
-        <path class="pipe cool" id="pipeCool" d="M340,127 H60 V25 H150" stroke-dasharray="6 6"/>
+        <!-- Leiding: collector-uitgang (rechts) naar de BotH-laag (rechterzijde = warm) -->
+        <path class="pipe hot" id="pipeHot" d="M330,26 V150 H285" stroke-dasharray="6 6"/>
+
+        <!-- Boiler: half zo breed als de collector, gecentreerd eronder. 6 lagen, BotL onderaan tot TopH bovenaan -->
+        <g id="boiler">
+          <rect x="195" y="55" width="90" height="126" rx="4" fill="none" stroke="#3a4a5c" stroke-width="1.5"/>
+          <!-- lagen, elk 126/6 = 21 hoog -->
+          <rect class="layer" x="195" y="55"  width="90" height="21" fill="#212b37"/>
+          <text x="240" y="68"  text-anchor="middle" class="lbl">TopH</text>
+          <rect class="layer" x="195" y="76"  width="90" height="21" fill="#1e2733"/>
+          <text x="240" y="89"  text-anchor="middle" class="lbl">TopL</text>
+          <rect class="layer" x="195" y="97"  width="90" height="21" fill="#212b37"/>
+          <text x="240" y="110" text-anchor="middle" class="lbl">MidH</text>
+          <rect class="layer" x="195" y="118" width="90" height="21" fill="#1e2733"/>
+          <text x="240" y="131" text-anchor="middle" class="lbl">MidL</text>
+          <rect class="layer" id="botHLayer" x="195" y="139" width="90" height="21" fill="#8a3a2e"/>
+          <text x="240" y="148" text-anchor="middle" class="lbl"
+                paint-order="stroke" stroke="#10161d" stroke-width="3" stroke-linejoin="round">BotH</text>
+          <text x="240" y="158" text-anchor="middle" class="temp" id="svgBotHTemp"
+                paint-order="stroke" stroke="#10161d" stroke-width="3" stroke-linejoin="round">42°</text>
+          <rect class="layer" x="195" y="160" width="90" height="21" fill="#1e2733"/>
+          <text x="240" y="173" text-anchor="middle" class="lbl">BotL</text>
+        </g>
+
+        <!-- Temperaturen net vóór (rechts, warm) en net na (links, afgekoeld) de spiraal-doorgang -->
+        <text x="290" y="153" class="temp hot" id="svgPreSpiral">45°</text>
+        <text x="190" y="153" text-anchor="end" class="temp cool" id="svgPostSpiral">38°</text>
+
+        <!-- Leiding: BotH-laag (linkerzijde = afgekoeld) naar pomp naar collector-ingang (links) -->
+        <path class="pipe cool" id="pipeCool" d="M195,150 H120 V26 H150" stroke-dasharray="6 6"/>
 
         <!-- Pomp op de retourleiding, vóór de collector-ingang -->
-        <circle class="pump" cx="90" cy="25" r="9"/>
-        <path d="M86,20 L94,25 L86,30 Z" fill="var(--flow)"/>
-        <text x="90" y="43" text-anchor="middle" class="pwmlabel" id="svgPwm">PWM 0</text>
+        <circle class="pump" cx="120" cy="88" r="9"/>
+        <path d="M116,83 L124,88 L116,93 Z" fill="var(--flow)"/>
+        <text x="103" y="88" text-anchor="end" class="pwmlabel" id="svgPwm">PWM 0</text>
       </svg>
     </div>
   </div>
@@ -570,6 +584,18 @@ function updateBadgeAndReadouts(phase, sensorTC){
 // Circuitschema: collector → spiraal in BotH-laag → pomp → collector
 // ---------------------------------------------------------------------
 let flowOffset = 0;
+
+// Kleurschaal voor de rechthoeken: blauw bij ≤30°C tot felrood bij ≥100°C
+function tempToColor(t){
+  const lo = 30, hi = 100;
+  const f = Math.max(0, Math.min(1, (t - lo) / (hi - lo)));
+  const blue = [58,120,190], red = [224,48,36];
+  const r = Math.round(blue[0] + f*(red[0]-blue[0]));
+  const g = Math.round(blue[1] + f*(red[1]-blue[1]));
+  const b = Math.round(blue[2] + f*(red[2]-blue[2]));
+  return `rgb(${r},${g},${b})`;
+}
+
 function updateSchematic(sensorTC){
   // Temperatuur na de spiraal: puur illustratief - hoe lager de PWM, hoe
   // meer warmte het water per doorgang afgeeft (langere contacttijd), dus
@@ -579,15 +605,13 @@ function updateSchematic(sensorTC){
   document.getElementById('svgTsolOut').textContent = 'Tsol ' + sensorTC.toFixed(0) + '°';
   document.getElementById('svgPreSpiral').textContent = sensorTC.toFixed(0) + '°';
   document.getElementById('svgPostSpiral').textContent = postSpiral.toFixed(0) + '°';
+  document.getElementById('svgBotHTemp').textContent = TB.toFixed(0) + '°';
   document.getElementById('svgPwm').textContent = 'PWM ' + Math.round(pwmValue);
 
-  // BotH-laag kleurt mee met de werkelijke boilertemperatuur (enige laag
-  // die het model effectief simuleert; de andere 5 zijn illustratieve labels)
-  const warmth = Math.max(0, Math.min(1, (TB - 20) / 60));
-  const r = Math.round(42 + warmth*(232-42));
-  const g = Math.round(33 + warmth*(97-33));
-  const b = Math.round(24 + warmth*(24-24));
-  document.getElementById('botHLayer').setAttribute('fill', `rgb(${r},${g},${b})`);
+  // Collector en BotH-laag kleuren mee met hun werkelijke temperatuur
+  // (de enige twee knooppunten die het model effectief simuleert)
+  document.getElementById('collectorRect').setAttribute('fill', tempToColor(sensorTC));
+  document.getElementById('botHLayer').setAttribute('fill', tempToColor(TB));
 
   // Doorstroom-animatie: sneller bewegende streepjes bij hogere PWM, stil bij PWM=0
   flowOffset -= pwmValue / 25 + (pwmValue>0 ? 0.3 : 0);

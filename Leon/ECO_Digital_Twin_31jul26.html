@@ -1,4 +1,4 @@
-// Derde versie:
+//v5 - 31jul26
 
 <!DOCTYPE html>
 <html lang="nl">
@@ -129,6 +129,85 @@
   .field.kd input, .field.kd label .val{ accent-color:var(--flow); }
   .field.ki label .val{ color:var(--cool); }
   .field.kd label .val{ color:var(--flow); }
+
+  .info-icon{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:15px;
+    height:15px;
+    border-radius:50%;
+    border:1px solid var(--text-muted);
+    color:var(--text-muted);
+    font-size:10px;
+    font-style:italic;
+    font-family:Georgia, serif;
+    cursor:pointer;
+    margin-left:6px;
+    position:relative;
+    flex-shrink:0;
+  }
+  .info-icon:hover, .info-icon:focus-visible{ border-color:var(--hot); color:var(--hot); outline:none; }
+  .info-icon::after{
+    content:attr(data-tip);
+    position:absolute;
+    left:50%;
+    bottom:130%;
+    transform:translateX(-50%);
+    background:#0c1116;
+    border:1px solid var(--line);
+    color:var(--text);
+    font-family:var(--sans);
+    font-style:normal;
+    font-size:11.5px;
+    white-space:nowrap;
+    padding:5px 9px;
+    border-radius:6px;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .15s;
+    z-index:5;
+  }
+  .info-icon:hover::after{ opacity:1; }
+
+  .modal-overlay{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(8,11,15,0.72);
+    z-index:50;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+  }
+  .modal-overlay.open{ display:flex; }
+  .modal-box{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:12px;
+    max-width:460px;
+    width:100%;
+    padding:22px 24px 24px;
+    position:relative;
+  }
+  .modal-box h3{ margin:0 0 12px; font-size:16px; }
+  .modal-box p{ margin:0 0 10px; font-size:13.5px; color:var(--text); line-height:1.55; }
+  .modal-box p .tag{ font-weight:700; }
+  .modal-box p.up .tag{ color:var(--flow); }
+  .modal-box p.down .tag{ color:var(--alarm); }
+  .modal-close{
+    position:absolute;
+    top:14px; right:14px;
+    width:26px; height:26px;
+    border-radius:50%;
+    background:var(--panel-raised);
+    border:1px solid var(--line);
+    color:var(--text-muted);
+    font-size:15px;
+    line-height:1;
+    cursor:pointer;
+  }
+  .modal-close:hover{ color:var(--text); border-color:var(--hot); }
   .btnrow{ display:flex; gap:8px; margin-top:18px; flex-wrap:wrap; }
   button{
     background:var(--panel-raised);
@@ -260,17 +339,16 @@
           <text x="240" y="173" text-anchor="middle" class="lbl">BotL</text>
         </g>
 
-        <!-- Temperaturen net vóór (rechts, warm) en net na (links, afgekoeld) de spiraal-doorgang -->
-        <text x="290" y="153" class="temp hot" id="svgPreSpiral">45°</text>
+        <!-- Temperatuur na de spiraal (afgekoeld, op weg naar de pomp) -->
         <text x="190" y="153" text-anchor="end" class="temp cool" id="svgPostSpiral">38°</text>
 
         <!-- Leiding: BotH-laag (linkerzijde = afgekoeld) naar pomp naar collector-ingang (links) -->
-        <path class="pipe cool" id="pipeCool" d="M195,150 H120 V26 H150" stroke-dasharray="6 6"/>
+        <path class="pipe cool" id="pipeCool" d="M195,150 H150 V26" stroke-dasharray="6 6"/>
 
-        <!-- Pomp op de retourleiding, vóór de collector-ingang -->
-        <circle class="pump" cx="120" cy="88" r="9"/>
-        <path d="M116,83 L124,88 L116,93 Z" fill="var(--flow)"/>
-        <text x="103" y="88" text-anchor="end" class="pwmlabel" id="svgPwm">PWM 0</text>
+        <!-- Pomp op de retourleiding, symmetrisch t.o.v. de hete leiding rechts -->
+        <circle class="pump" cx="150" cy="88" r="9"/>
+        <path d="M146,93 L154,93 L150,83 Z" fill="var(--flow)"/>
+        <text x="150" y="112" text-anchor="middle" class="pwmlabel" id="svgPwm">PWM 0</text>
       </svg>
     </div>
   </div>
@@ -282,31 +360,40 @@
     <h2>Omgeving</h2>
     <div class="field">
       <label>Zon-intensiteit <span class="val" id="sunVal">70°C</span></label>
-      <input type="range" id="sun" min="0" max="100" step="1" value="70">
+      <input type="range" id="sun" min="0" max="100" step="1" value="0">
     </div>
     <div class="field">
       <label>BotH — boilertemperatuur nu <span class="val" id="bothVal">45°C</span></label>
-      <input type="range" id="both" min="10" max="80" step="1" value="45">
+      <input type="range" id="both" min="10" max="80" step="1" value="10">
     </div>
 
     <h2 style="margin-top:22px;">PID-parameters</h2>
     <div class="field">
-      <label>Kp <span class="val" id="kpVal">6.0</span></label>
-      <input type="range" id="kp" min="0" max="15" step="0.5" value="6">
+      <label>Kp
+        <span><span class="info-icon" tabindex="0" role="button" aria-label="Info over Kp" data-tip="Info over deze regeling" data-modal="kp">i</span>
+        <span class="val" id="kpVal">6.0</span></span>
+      </label>
+      <input type="range" id="kp" min="0" max="15" step="0.5" value="0">
     </div>
     <div class="field ki">
-      <label>Ki <span class="val" id="kiVal">0.50</span></label>
-      <input type="range" id="ki" min="0" max="2" step="0.05" value="0.5">
+      <label>Ki
+        <span><span class="info-icon" tabindex="0" role="button" aria-label="Info over Ki" data-tip="Info over deze regeling" data-modal="ki">i</span>
+        <span class="val" id="kiVal">0.50</span></span>
+      </label>
+      <input type="range" id="ki" min="0" max="2" step="0.05" value="0">
     </div>
     <div class="field kd">
-      <label>Kd <span class="val" id="kdVal">1.2</span></label>
-      <input type="range" id="kd" min="0" max="5" step="0.1" value="1.2">
+      <label>Kd
+        <span><span class="info-icon" tabindex="0" role="button" aria-label="Info over Kd" data-tip="Info over deze regeling" data-modal="kd">i</span>
+        <span class="val" id="kdVal">1.2</span></span>
+      </label>
+      <input type="range" id="kd" min="0" max="5" step="0.1" value="0">
     </div>
 
     <h2 style="margin-top:22px;">Simulatie</h2>
     <div class="field">
       <label>Snelheid <span class="val" id="speedVal">8× (min/sec)</span></label>
-      <input type="range" id="speed" min="1" max="24" step="1" value="8">
+      <input type="range" id="speed" min="1" max="24" step="1" value="1">
     </div>
     <div class="btnrow">
       <button class="primary" id="cloudBtn">☁ Wolk voorbij</button>
@@ -342,6 +429,14 @@
   Educatief model, geen exacte simulatie — bedoeld om intuïtie op te bouwen over P/I/D-gedrag, niet om precieze temperaturen te voorspellen. Zie <a href="README.md">README.md</a> voor de achterliggende fysica en regellogica.
 </footer>
 
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <button class="modal-close" id="modalClose" aria-label="Sluiten">✕</button>
+    <h3 id="modalTitle">—</h3>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
 <script>
 // =====================================================================
 // PARAMETERS DIE 1-OP-1 UIT DE ECHTE PHOTON-SKETCH KOMEN (28-30jul26)
@@ -375,7 +470,7 @@ function spikeMagnitudeFor(stagnantMin){
   return Math.min(stagnantMin * 2.5, 35);
 }
 
-let TC = 45, TB = 45;
+let TC = 10, TB = 10;
 let dTFiltered = 0, dTFilterInit = false;
 let relayState = false, pwmValue = 0;
 let pidIntegral = 0, pidPrevError = 0;
@@ -404,13 +499,20 @@ function syncLabels(){
 }
 [sunEl,kpEl,kiEl,kdEl,speedEl].forEach(e=>e.addEventListener('input', syncLabels));
 bothEl.addEventListener('input', ()=>{ TB = +bothEl.value; syncLabels(); });
+let bothDragging = false;
+bothEl.addEventListener('mousedown', ()=>{ bothDragging = true; });
+bothEl.addEventListener('touchstart', ()=>{ bothDragging = true; });
+['mouseup','touchend','blur'].forEach(evt=>{
+  bothEl.addEventListener(evt, ()=>{ bothDragging = false; });
+});
 syncLabels();
 
 document.getElementById('resetBtn').addEventListener('click', resetSim);
-document.getElementById('pauseBtn').addEventListener('click', (e)=>{
-  paused = !paused;
-  e.target.textContent = paused ? '▶ Verder' : '⏸ Pauze';
-});
+function setPaused(val){
+  paused = val;
+  document.getElementById('pauseBtn').textContent = paused ? '▶ Verder' : '⏸ Pauze';
+}
+document.getElementById('pauseBtn').addEventListener('click', ()=> setPaused(!paused));
 document.getElementById('cloudBtn').addEventListener('click', ()=>{
   if (cloudUntil > 0) return; // al bezig
   cloudSaved = +sunEl.value;
@@ -420,7 +522,7 @@ document.getElementById('cloudBtn').addEventListener('click', ()=>{
 });
 
 function resetSim(){
-  TC = 45; TB = +bothEl.value;
+  TC = +bothEl.value; TB = +bothEl.value;
   dTFiltered = 0; dTFilterInit = false;
   relayState = false; pwmValue = 0;
   pidIntegral = 0; pidPrevError = 0;
@@ -433,6 +535,64 @@ function resetSim(){
   logMsg('STOP', 'Simulatie gereset.');
   updateCharts(true);
 }
+
+// ---------------------------------------------------------------------
+// Info-modal per PID-parameter, met geverifieerde voorbeeldcijfers uit
+// eigen tests van deze exacte regellogica (Kp/Ki bij constante zon,
+// Kd vóór/na de derivative-kick-fix)
+// ---------------------------------------------------------------------
+const pidExplanations = {
+  kp: {
+    title: 'Kp — Proportioneel',
+    body: `
+      <p>Reageert onmiddellijk op hoe ver dT_gefilterd op dit moment van het doel (1,8°C) afligt. Hoe groter die fout, hoe harder de pomp meteen bijstuurt — zonder geheugen van het verleden.</p>
+      <p class="up"><span class="tag">Hoger:</span> minder blijvende afwijking t.o.v. het doel, en een snellere reactie. Bij een constante zon-intensiteit pendelt dT_gefilterd bijvoorbeeld rond 4,2°C met Kp=1, rond 2,9°C met Kp=6, en rond 2,3°C met Kp=25 — de regelaar komt dus steeds dichter bij 1,8°C, maar bereikt het nooit helemaal op zichzelf.</p>
+      <p class="down"><span class="tag">Lager:</span> trager, en de pomp blijft verder van het doel hangen. Bij Kp=0 reageert de pomp helemaal niet meer op de fout.</p>
+    `
+  },
+  ki: {
+    title: 'Ki — Integrerend',
+    body: `
+      <p>Houdt bij hoe lang en hoe erg dT_gefilterd al van het doel afwijkt, en blijft die kleine, aanhoudende afwijking die Kp alleen laat liggen, langzaam wegduwen.</p>
+      <p class="up"><span class="tag">Hoger:</span> duwt de resterende afwijking verder weg richting het doel. Bij Kp=4 blijft bijvoorbeeld gemiddeld 2,98°C hangen met Ki=0, zakt dat naar 1,69°C bij Ki=0,5, en naar 1,79°C (vrijwel exact op doel) bij Ki=4. Té hoog kan er wel voor zorgen dat de regelaar na een storing (bv. een voorbijtrekkende wolk) een tijdje "doorschiet", omdat de opgebouwde correctie nog moet wegebben.</p>
+      <p class="down"><span class="tag">Lager:</span> laat een kleine, structurele afwijking liggen die nooit helemaal verdwijnt, ook niet na lange tijd.</p>
+    `
+  },
+  kd: {
+    title: 'Kd — Differentiërend',
+    body: `
+      <p>Reageert niet op de fout zelf, maar op hóé snel die verandert — een soort rem die vooruitkijkt en al bijstuurt vóór de fout zelf groot wordt.</p>
+      <p class="up"><span class="tag">Hoger:</span> dempt een plotse piek sneller af, bijvoorbeeld net na het opstarten van de pomp wanneer de "hete-plug"-transiënt loskomt — minder overshoot. Bij een té hoge waarde kan de regelaar wel gevoeliger worden voor kleine schommelingen in het signaal.</p>
+      <p class="down"><span class="tag">Lager (of 0):</span> laat pieken meer uitschieten vóór de regelaar bijstuurt, met een tragere terugkeer naar het doel als gevolg.</p>
+    `
+  }
+};
+
+let pausedBeforeModal = false;
+const modalOverlay = document.getElementById('modalOverlay');
+function openModal(key){
+  const info = pidExplanations[key];
+  document.getElementById('modalTitle').textContent = info.title;
+  document.getElementById('modalBody').innerHTML = info.body;
+  pausedBeforeModal = paused;
+  setPaused(true);
+  modalOverlay.classList.add('open');
+}
+function closeModal(){
+  modalOverlay.classList.remove('open');
+  setPaused(pausedBeforeModal);
+}
+document.querySelectorAll('.info-icon').forEach(icon=>{
+  icon.addEventListener('click', ()=> openModal(icon.dataset.modal));
+  icon.addEventListener('keydown', (e)=>{
+    if (e.key==='Enter' || e.key===' ') { e.preventDefault(); openModal(icon.dataset.modal); }
+  });
+});
+document.getElementById('modalClose').addEventListener('click', closeModal);
+modalOverlay.addEventListener('click', (e)=>{ if (e.target===modalOverlay) closeModal(); });
+document.addEventListener('keydown', (e)=>{
+  if (e.key==='Escape' && modalOverlay.classList.contains('open')) closeModal();
+});
 
 // ---------------------------------------------------------------------
 // Console-log
@@ -539,6 +699,12 @@ function step(){
       pwmDoel = Math.min(Math.max(pwmDoel, PWM_RAMP_START), PWM_RAMP_CEILING);
       phase = 'OPSTART';
       text = `Open-lus opstart-ramp (losgekoppeld van de PID): PWM klimt vast naar ${Math.round(pwmDoel)}, om de hete-plug-piek niet meteen te voelen.`;
+      // Belangrijk: pidPrevError blijft ook tijdens de ramp elke minuut meelopen.
+      // Zonder dit zou de D-term bij de eerste REGIME-stap na de ramp een
+      // kunstmatige piek zien (vergelijking met een 3 minuten oude fout i.p.v.
+      // de vorige minuut), en die piek groeit mee met Kd - het omgekeerde van
+      // wat een D-term hoort te doen (dempen i.p.v. versterken).
+      pidPrevError = dTFiltered - DT_TARGET;
     } else {
       const error = dTFiltered - DT_TARGET;
       if (!atFloor) pidIntegral = Math.min(Math.max(pidIntegral + error, -PID_I_MAX), PID_I_MAX);
@@ -597,13 +763,19 @@ function tempToColor(t){
 }
 
 function updateSchematic(sensorTC){
+  // BotH-slider live laten meevolgen met de gesimuleerde boilertemperatuur,
+  // behalve terwijl de gebruiker hem zelf actief versleept
+  if (!bothDragging) {
+    bothEl.value = Math.round(TB);
+    document.getElementById('bothVal').textContent = Math.round(TB) + '°C';
+  }
+
   // Temperatuur na de spiraal: puur illustratief - hoe lager de PWM, hoe
   // meer warmte het water per doorgang afgeeft (langere contacttijd), dus
   // hoe dichter de uittemperatuur bij BotH ligt i.p.v. bij Tsol.
   const postSpiral = TB + (sensorTC - TB) * (1 - Math.exp(-pwmValue/60));
 
   document.getElementById('svgTsolOut').textContent = 'Tsol ' + sensorTC.toFixed(0) + '°';
-  document.getElementById('svgPreSpiral').textContent = sensorTC.toFixed(0) + '°';
   document.getElementById('svgPostSpiral').textContent = postSpiral.toFixed(0) + '°';
   document.getElementById('svgBotHTemp').textContent = TB.toFixed(0) + '°';
   document.getElementById('svgPwm').textContent = 'PWM ' + Math.round(pwmValue);

@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zonnecollector Digital Twin — PID-simulator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root{
+    --bg:            #10161d;
+    --panel:         #1a222c;
+    --panel-raised:  #212b37;
+    --line:          #2c3948;
+    --text:          #e7edf3;
+    --text-muted:    #7d8ea1;
+    --hot:           #ff8a3d;   /* collector / Tsol */
+    --cool:          #4fb0d9;   /* boiler / BotH */
+    --flow:          #8fe08a;   /* PWM / doorstroming */
+    --warn:          #e8c95c;
+    --alarm:         #e8615d;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  }
+  @font-face{ font-family:"IBM Plex Sans"; src:local("Segoe UI"); }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; }
+  body{
+    background:
+      radial-gradient(1200px 600px at 15% -10%, #1a2735 0%, transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    line-height:1.45;
+  }
+  header{
+    padding:28px 32px 18px;
+    border-bottom:1px solid var(--line);
+  }
+  header h1{
+    margin:0 0 4px;
+    font-size:22px;
+    font-weight:700;
+    letter-spacing:.2px;
+  }
+  header h1 .dot{ color:var(--hot); }
+  header p{
+    margin:0;
+    color:var(--text-muted);
+    font-size:14px;
+    max-width:720px;
+  }
+  .layout{
+    display:grid;
+    grid-template-columns:300px 1fr;
+    gap:20px;
+    padding:24px 32px 40px;
+    align-items:start;
+  }
+  @media (max-width:880px){
+    .layout{ grid-template-columns:1fr; }
+  }
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:18px 18px 20px;
+  }
+  .panel h2{
+    margin:0 0 14px;
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:1.2px;
+    color:var(--text-muted);
+    font-weight:600;
+  }
+  .field{ margin-bottom:16px; }
+  .field label{
+    display:flex;
+    justify-content:space-between;
+    font-size:13px;
+    margin-bottom:6px;
+    color:var(--text);
+  }
+  .field label .val{
+    font-family:var(--mono);
+    color:var(--hot);
+    font-size:12.5px;
+  }
+  input[type=range]{
+    width:100%;
+    accent-color:var(--hot);
+    height:4px;
+  }
+  .field.ki input, .field.ki label .val{ accent-color:var(--cool); }
+  .field.kd input, .field.kd label .val{ accent-color:var(--flow); }
+  .field.ki label .val{ color:var(--cool); }
+  .field.kd label .val{ color:var(--flow); }
+  .btnrow{ display:flex; gap:8px; margin-top:18px; flex-wrap:wrap; }
+  button{
+    background:var(--panel-raised);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:9px 12px;
+    border-radius:7px;
+    font-size:13px;
+    cursor:pointer;
+    font-family:var(--sans);
+  }
+  button:hover{ border-color:var(--hot); }
+  button:focus-visible, input:focus-visible{ outline:2px solid var(--hot); outline-offset:2px; }
+  button.primary{ border-color:var(--hot); color:var(--hot); }
+
+  .readouts{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:10px;
+    margin-bottom:16px;
+  }
+  .stat{
+    background:var(--panel-raised);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:10px 12px;
+  }
+  .stat .lbl{ font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.6px; }
+  .stat .num{ font-family:var(--mono); font-size:20px; margin-top:2px; }
+  .stat.hot .num{ color:var(--hot); }
+  .stat.cool .num{ color:var(--cool); }
+  .stat.flow .num{ color:var(--flow); }
+
+  .phase{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:6px 12px;
+    border-radius:999px;
+    font-family:var(--mono);
+    font-size:13px;
+    font-weight:600;
+    letter-spacing:.4px;
+    margin-bottom:14px;
+    border:1px solid var(--line);
+  }
+  .phase .led{ width:8px; height:8px; border-radius:50%; background:currentColor; box-shadow:0 0 8px currentColor; }
+  .phase.OPSTART{ color:var(--warn); }
+  .phase.REGIME{ color:var(--flow); }
+  .phase.AFBOUW{ color:var(--cool); }
+  .phase.STOP{ color:var(--text-muted); }
+  .phase.THERMOSIFON{ color:var(--cool); }
+  .phase.OVERVERHIT{ color:var(--alarm); }
+
+  canvas{ max-height:230px; }
+  .chartwrap{ margin-bottom:8px; }
+
+  .console{
+    background:#0c1116;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:12px 14px;
+    font-family:var(--mono);
+    font-size:12.5px;
+    color:#b9c6d3;
+    height:150px;
+    overflow-y:auto;
+  }
+  .console .line{ margin-bottom:6px; }
+  .console .t{ color:var(--text-muted); }
+  .console .cursor{ display:inline-block; width:7px; background:var(--flow); animation:blink 1s steps(1) infinite; }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  footer{
+    padding:0 32px 32px;
+    color:var(--text-muted);
+    font-size:12.5px;
+  }
+  footer a{ color:var(--hot); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Zonnecollector Digital Twin<span class="dot">.</span></h1>
+  <p>Vereenvoudigd thermisch model van de ECO-boiler zonnelus, aangestuurd door dezelfde 5-fasen PID-regellogica als de echte Photon-sketch. Verschuif de zon, de boilertemperatuur en de P/I/D-parameters, en kijk hoe het systeem reageert.</p>
+</header>
+
+<div class="layout">
+
+  <div class="panel" id="controls">
+    <h2>Omgeving</h2>
+    <div class="field">
+      <label>Zon-intensiteit <span class="val" id="sunVal">70°C</span></label>
+      <input type="range" id="sun" min="0" max="100" step="1" value="70">
+    </div>
+    <div class="field">
+      <label>BotH — boilertemperatuur nu <span class="val" id="bothVal">45°C</span></label>
+      <input type="range" id="both" min="10" max="80" step="1" value="45">
+    </div>
+
+    <h2 style="margin-top:22px;">PID-parameters</h2>
+    <div class="field">
+      <label>Kp <span class="val" id="kpVal">6.0</span></label>
+      <input type="range" id="kp" min="0" max="15" step="0.5" value="6">
+    </div>
+    <div class="field ki">
+      <label>Ki <span class="val" id="kiVal">0.50</span></label>
+      <input type="range" id="ki" min="0" max="2" step="0.05" value="0.5">
+    </div>
+    <div class="field kd">
+      <label>Kd <span class="val" id="kdVal">1.2</span></label>
+      <input type="range" id="kd" min="0" max="5" step="0.1" value="1.2">
+    </div>
+
+    <h2 style="margin-top:22px;">Simulatie</h2>
+    <div class="field">
+      <label>Snelheid <span class="val" id="speedVal">8× (min/sec)</span></label>
+      <input type="range" id="speed" min="1" max="24" step="1" value="8">
+    </div>
+    <div class="btnrow">
+      <button class="primary" id="cloudBtn">☁ Wolk voorbij</button>
+      <button id="resetBtn">↺ Reset</button>
+      <button id="pauseBtn">⏸ Pauze</button>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel" style="margin-bottom:16px;">
+      <span class="phase REGIME" id="phaseBadge"><span class="led"></span>REGIME</span>
+
+      <div class="readouts">
+        <div class="stat hot"><div class="lbl">Tsol (collector)</div><div class="num" id="rTC">45.0°C</div></div>
+        <div class="stat cool"><div class="lbl">BotH (boiler)</div><div class="num" id="rTB">45.0°C</div></div>
+        <div class="stat"><div class="lbl">dT gefilterd</div><div class="num" id="rDT">0.0°C</div></div>
+        <div class="stat flow"><div class="lbl">PWM</div><div class="num" id="rPWM">0</div></div>
+      </div>
+
+      <div class="chartwrap"><canvas id="chartTemp"></canvas></div>
+      <div class="chartwrap"><canvas id="chartPwm"></canvas></div>
+    </div>
+
+    <div class="panel">
+      <h2>Wat er nu gebeurt</h2>
+      <div class="console" id="console"></div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  Educatief model, geen exacte simulatie — bedoeld om intuïtie op te bouwen over P/I/D-gedrag, niet om precieze temperaturen te voorspellen. Zie <a href="README.md">README.md</a> voor de achterliggende fysica en regellogica.
+</footer>
+
+<script>
+// =====================================================================
+// PARAMETERS DIE 1-OP-1 UIT DE ECHTE PHOTON-SKETCH KOMEN (28-30jul26)
+// =====================================================================
+const DT_TARGET = 1.8;
+const DT_START = 2.0;
+const DT_HARD_STOP = 0.0;
+const PWM_MIN = 15;
+const PWM_RAMP_START = 20;
+const PWM_RAMP_STEP_PER_MIN = 10;
+const PWM_RAMP_DURATION_MIN = 3;
+const PWM_RAMP_CEILING = 60;
+const STOP_PATIENCE_MIN = 5;
+const PWM_MAX_DELTA_PER_MIN = 150;
+const DT_FILTER_ALPHA = 0.3;
+const PID_I_MAX = 50;
+
+// =====================================================================
+// VEREENVOUDIGD FYSISCH MODEL (educatief, niet kwantitatief exact)
+// =====================================================================
+const HEAT_GAIN = 0.12;      // hoe snel de collector richting de zon-intensiteit trekt, per minuut
+const FLOW_COOL = 0.0045;    // hoeveel warmte de doorstroming onttrekt, per PWM-eenheid per minuut
+const BOIL_TRANSFER = 0.35;  // fractie van de onttrokken warmte die de (kleinere) boilerlaag opwarmt
+const AMBIENT_LOSS = 0.002;  // trage afkoeling van de boiler naar omgeving/verbruik
+const AMBIENT_TEMP = 18;
+
+// "Hete-plug"-effect: het stilstaande leidingsegment vlak bij de sensor warmt
+// traag mee met de collector zolang de pomp stilstaat, en geeft een korte,
+// afnemende piek in de sensorlezing zodra de pomp net terug start.
+function spikeMagnitudeFor(stagnantMin){
+  return Math.min(stagnantMin * 2.5, 35);
+}
+
+let TC = 45, TB = 45;
+let dTFiltered = 0, dTFilterInit = false;
+let relayState = false, pwmValue = 0;
+let pidIntegral = 0, pidPrevError = 0;
+let pumpStartMinute = 0, floorMinutes = 0;
+let simMinutes = 0;
+let stagnantMinutes = 999;
+let spikeValue = 0, spikeRemaining = 0;
+let cloudUntil = -1, cloudSaved = null;
+let paused = false;
+let accMin = 0, lastFrameTs = null;
+
+const sunEl = document.getElementById('sun');
+const bothEl = document.getElementById('both');
+const kpEl = document.getElementById('kp');
+const kiEl = document.getElementById('ki');
+const kdEl = document.getElementById('kd');
+const speedEl = document.getElementById('speed');
+
+function syncLabels(){
+  document.getElementById('sunVal').textContent = sunEl.value + '°C';
+  document.getElementById('bothVal').textContent = bothEl.value + '°C';
+  document.getElementById('kpVal').textContent = (+kpEl.value).toFixed(1);
+  document.getElementById('kiVal').textContent = (+kiEl.value).toFixed(2);
+  document.getElementById('kdVal').textContent = (+kdEl.value).toFixed(1);
+  document.getElementById('speedVal').textContent = speedEl.value + '× (min/sec)';
+}
+[sunEl,kpEl,kiEl,kdEl,speedEl].forEach(e=>e.addEventListener('input', syncLabels));
+bothEl.addEventListener('input', ()=>{ TB = +bothEl.value; syncLabels(); });
+syncLabels();
+
+document.getElementById('resetBtn').addEventListener('click', resetSim);
+document.getElementById('pauseBtn').addEventListener('click', (e)=>{
+  paused = !paused;
+  e.target.textContent = paused ? '▶ Verder' : '⏸ Pauze';
+});
+document.getElementById('cloudBtn').addEventListener('click', ()=>{
+  if (cloudUntil > 0) return; // al bezig
+  cloudSaved = +sunEl.value;
+  sunEl.value = Math.max(5, Math.round(cloudSaved*0.25));
+  syncLabels();
+  cloudUntil = simMinutes + 5;
+});
+
+function resetSim(){
+  TC = 45; TB = +bothEl.value;
+  dTFiltered = 0; dTFilterInit = false;
+  relayState = false; pwmValue = 0;
+  pidIntegral = 0; pidPrevError = 0;
+  pumpStartMinute = 0; floorMinutes = 0;
+  simMinutes = 0; stagnantMinutes = 999;
+  spikeValue = 0; spikeRemaining = 0;
+  cloudUntil = -1; cloudSaved = null;
+  tempSeries = {tc:[], tb:[], dt:[]}; pwmSeries = [];
+  logLines = [];
+  logMsg('STOP', 'Simulatie gereset.');
+  updateCharts(true);
+}
+
+// ---------------------------------------------------------------------
+// Console-log
+// ---------------------------------------------------------------------
+let logLines = [];
+function logMsg(phase, text){
+  const t = simMinutes.toFixed(1);
+  logLines.push({t, phase, text});
+  if (logLines.length > 40) logLines.shift();
+  const el = document.getElementById('console');
+  el.innerHTML = logLines.map(l =>
+    `<div class="line"><span class="t">t=${l.t}′ [${l.phase}]</span> ${l.text}</div>`
+  ).join('') + '<span class="cursor">&nbsp;</span>';
+  el.scrollTop = el.scrollHeight;
+}
+let lastLoggedPhase = null;
+
+// ---------------------------------------------------------------------
+// Eén simulatiestap = 1 gesimuleerde minuut, exact zoals solarPump()
+// ---------------------------------------------------------------------
+function step(){
+  simMinutes += 1;
+
+  if (cloudUntil > 0 && simMinutes >= cloudUntil) {
+    sunEl.value = cloudSaved;
+    syncLabels();
+    cloudUntil = -1;
+  }
+
+  const sunTarget = +sunEl.value;
+
+  // --- Fysica (gebruikt de PWM van de vórige cyclus, net als de echte telemetrie-lag) ---
+  TC += HEAT_GAIN * (sunTarget - TC);
+  const extracted = FLOW_COOL * pwmValue * Math.max(TC - TB, 0);
+  TC -= extracted;
+  TB += extracted * BOIL_TRANSFER;
+  TB -= AMBIENT_LOSS * (TB - AMBIENT_TEMP);
+
+  if (pwmValue < 1) stagnantMinutes += 1; else stagnantMinutes = 0;
+
+  let sensorTC = TC;
+  if (spikeRemaining > 0) {
+    sensorTC += spikeValue * (spikeRemaining / 2.0);
+    spikeRemaining -= 1;
+  }
+
+  const dTraw = sensorTC - TB;
+  if (!dTFilterInit) { dTFiltered = dTraw; dTFilterInit = true; }
+  else { dTFiltered += DT_FILTER_ALPHA * (dTraw - dTFiltered); }
+
+  // --- STOP als laatste redmiddel ---
+  let shouldBeOn, atFloor = false;
+  if (relayState) {
+    atFloor = pwmValue <= PWM_MIN + 2;
+    const tooLow = dTFiltered <= DT_HARD_STOP;
+    if (atFloor && tooLow) floorMinutes += 1; else floorMinutes = 0;
+    shouldBeOn = floorMinutes < STOP_PATIENCE_MIN;
+  } else {
+    shouldBeOn = dTFiltered > DT_START;
+    floorMinutes = 0;
+  }
+
+  let phase = '', text = '';
+
+  if (dTFiltered > DT_START && sensorTC < 22) {
+    shouldBeOn = false; floorMinutes = 0;
+    phase = 'THERMOSIFON';
+    text = `Collector (${sensorTC.toFixed(1)}°C) is te koud t.o.v. de 22°C-drempel, ook al is dT positief — pomp blijft uit om terugstroming te vermijden.`;
+  }
+  const overheat = sensorTC >= 90;
+  if (overheat) {
+    shouldBeOn = true; floorMinutes = 0;
+    phase = 'OVERVERHIT';
+    text = `Collector ≥ 90°C — noodstop-logica forceert de pomp aan op volle kracht (PWM 255).`;
+  }
+
+  if (!shouldBeOn) {
+    relayState = false; pwmValue = 0;
+    pidIntegral = 0; pidPrevError = 0; floorMinutes = 0;
+    if (!phase) {
+      phase = 'STOP';
+      text = `dT gefilterd (${dTFiltered.toFixed(1)}°C) te laag — pomp uit, wacht tot dT > ${DT_START}°C.`;
+    }
+  } else {
+    const justStarted = !relayState;
+    if (justStarted) {
+      pumpStartMinute = simMinutes;
+      pidIntegral = 0; pidPrevError = dTFiltered - DT_TARGET;
+      floorMinutes = 0;
+      spikeValue = spikeMagnitudeFor(stagnantMinutes);
+      spikeRemaining = 2;
+      stagnantMinutes = 0;
+    }
+    relayState = true;
+    const inRamp = (simMinutes - pumpStartMinute) < PWM_RAMP_DURATION_MIN;
+    const Kp = +kpEl.value, Ki = +kiEl.value, Kd = +kdEl.value;
+    let pwmDoel;
+
+    if (overheat) {
+      pwmDoel = 255;
+    } else if (inRamp) {
+      const minSince = simMinutes - pumpStartMinute;
+      pwmDoel = PWM_RAMP_START + PWM_RAMP_STEP_PER_MIN * minSince;
+      pwmDoel = Math.min(Math.max(pwmDoel, PWM_RAMP_START), PWM_RAMP_CEILING);
+      phase = 'OPSTART';
+      text = `Open-lus opstart-ramp (losgekoppeld van de PID): PWM klimt vast naar ${Math.round(pwmDoel)}, om de hete-plug-piek niet meteen te voelen.`;
+    } else {
+      const error = dTFiltered - DT_TARGET;
+      if (!atFloor) pidIntegral = Math.min(Math.max(pidIntegral + error, -PID_I_MAX), PID_I_MAX);
+      const derivative = error - pidPrevError;
+      pidPrevError = error;
+      const pTerm = Kp * error, iTerm = Ki * pidIntegral, dTerm = Kd * derivative;
+      pwmDoel = Math.min(Math.max(PWM_MIN + pTerm + iTerm + dTerm, PWM_MIN), 255);
+      if (atFloor) {
+        phase = 'AFBOUW';
+        text = `PWM zit al op de bodem (${PWM_MIN}) en dT wint niet meer — ${floorMinutes.toFixed(0)}/${STOP_PATIENCE_MIN} min zonder herstel.`;
+      } else {
+        phase = 'REGIME';
+        text = `fout=${error.toFixed(1)}°C → P=${pTerm.toFixed(0)}  I=${iTerm.toFixed(0)}  D=${dTerm.toFixed(0)} → PWM-doel=${Math.round(pwmDoel)}`;
+      }
+    }
+
+    if (overheat) pwmValue = pwmDoel;
+    else if (pwmValue < pwmDoel) pwmValue = Math.min(pwmValue + PWM_MAX_DELTA_PER_MIN, pwmDoel);
+    else if (pwmValue > pwmDoel) pwmValue = Math.max(pwmValue - PWM_MAX_DELTA_PER_MIN, pwmDoel);
+  }
+
+  if (phase !== lastLoggedPhase || phase === 'REGIME') {
+    logMsg(phase, text);
+    lastLoggedPhase = phase;
+  }
+
+  updateBadgeAndReadouts(phase, sensorTC);
+  pushHistory(sensorTC);
+}
+
+function updateBadgeAndReadouts(phase, sensorTC){
+  const badge = document.getElementById('phaseBadge');
+  badge.className = 'phase ' + phase;
+  badge.innerHTML = '<span class="led"></span>' + phase;
+  document.getElementById('rTC').textContent = sensorTC.toFixed(1) + '°C';
+  document.getElementById('rTB').textContent = TB.toFixed(1) + '°C';
+  document.getElementById('rDT').textContent = dTFiltered.toFixed(1) + '°C';
+  document.getElementById('rPWM').textContent = Math.round(pwmValue);
+}
+
+// ---------------------------------------------------------------------
+// Grafieken
+// ---------------------------------------------------------------------
+let tempSeries = {tc:[], tb:[], dt:[]}, pwmSeries = [];
+const MAXPTS = 180;
+
+function pushHistory(sensorTC){
+  tempSeries.tc.push(sensorTC);
+  tempSeries.tb.push(TB);
+  tempSeries.dt.push(dTFiltered);
+  pwmSeries.push(pwmValue);
+  if (tempSeries.tc.length > MAXPTS) {
+    tempSeries.tc.shift(); tempSeries.tb.shift(); tempSeries.dt.shift(); pwmSeries.shift();
+  }
+}
+
+const mutedText = '#7d8ea1', grid = '#22303e';
+const labelsFor = (n) => Array.from({length:n}, (_,i)=>i);
+
+const chartTemp = new Chart(document.getElementById('chartTemp'), {
+  type:'line',
+  data:{ labels:[], datasets:[
+    { label:'Tsol', data:[], borderColor:'#ff8a3d', borderWidth:2, pointRadius:0, tension:.15, yAxisID:'y' },
+    { label:'BotH', data:[], borderColor:'#4fb0d9', borderWidth:2, pointRadius:0, tension:.15, yAxisID:'y' },
+    { label:'dT gefilterd', data:[], borderColor:'#e8c95c', borderWidth:1.5, borderDash:[4,3], pointRadius:0, tension:.15, yAxisID:'y1' },
+  ]},
+  options:{ responsive:true, animation:false, maintainAspectRatio:true,
+    plugins:{ legend:{ labels:{ color:mutedText, boxWidth:12, font:{size:11} } } },
+    scales:{
+      x:{ display:false },
+      y:{ position:'left', grid:{color:grid}, ticks:{color:mutedText}, title:{display:true,text:'°C',color:mutedText} },
+      y1:{ position:'right', grid:{display:false}, ticks:{color:mutedText}, title:{display:true,text:'dT °C',color:mutedText} },
+    } }
+});
+const chartPwm = new Chart(document.getElementById('chartPwm'), {
+  type:'line',
+  data:{ labels:[], datasets:[
+    { label:'PWM', data:[], borderColor:'#8fe08a', borderWidth:2, pointRadius:0, tension:.15, fill:true, backgroundColor:'rgba(143,224,138,0.08)' },
+  ]},
+  options:{ responsive:true, animation:false, maintainAspectRatio:true,
+    plugins:{ legend:{ labels:{ color:mutedText, boxWidth:12, font:{size:11} } } },
+    scales:{
+      x:{ display:false },
+      y:{ min:0, max:255, grid:{color:grid}, ticks:{color:mutedText} },
+    } }
+});
+
+function updateCharts(){
+  const labels = labelsFor(tempSeries.tc.length);
+  chartTemp.data.labels = labels;
+  chartTemp.data.datasets[0].data = tempSeries.tc;
+  chartTemp.data.datasets[1].data = tempSeries.tb;
+  chartTemp.data.datasets[2].data = tempSeries.dt;
+  chartTemp.update('none');
+
+  chartPwm.data.labels = labels;
+  chartPwm.data.datasets[0].data = pwmSeries;
+  chartPwm.update('none');
+}
+
+// ---------------------------------------------------------------------
+// Animatielus: accumuleert echte tijd naar gesimuleerde minuten
+// ---------------------------------------------------------------------
+function frame(ts){
+  if (lastFrameTs === null) lastFrameTs = ts;
+  const dtRealSec = (ts - lastFrameTs) / 1000;
+  lastFrameTs = ts;
+
+  if (!paused) {
+    accMin += dtRealSec * (+speedEl.value);
+    let guard = 0;
+    while (accMin >= 1 && guard < 400) {
+      step();
+      accMin -= 1;
+      guard++;
+    }
+    updateCharts();
+  }
+  requestAnimationFrame(frame);
+}
+
+logMsg('STOP', 'Simulatie gestart — dT nog te laag, pomp wacht.');
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

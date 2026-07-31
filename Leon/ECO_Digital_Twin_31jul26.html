@@ -33,22 +33,54 @@
     line-height:1.45;
   }
   header{
-    padding:28px 32px 18px;
+    padding:20px 32px 16px;
     border-bottom:1px solid var(--line);
   }
-  header h1{
+  .header-inner{
+    display:flex;
+    gap:20px;
+    align-items:stretch;
+  }
+  @media (max-width:880px){
+    .header-inner{ flex-direction:column; }
+  }
+  .header-text{
+    width:300px;
+    flex-shrink:0;
+  }
+  .header-text h1{
     margin:0 0 4px;
-    font-size:22px;
+    font-size:16px;
     font-weight:700;
     letter-spacing:.2px;
   }
-  header h1 .dot{ color:var(--hot); }
-  header p{
+  .header-text h1 .dot{ color:var(--hot); }
+  .header-text p{
     margin:0;
     color:var(--text-muted);
-    font-size:14px;
-    max-width:720px;
+    font-size:12px;
   }
+  .schematic{
+    flex:1;
+    min-width:0;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:8px 14px;
+  }
+  .schematic svg{ width:100%; height:150px; display:block; }
+  .schematic text{ font-family:var(--mono); fill:var(--text); }
+  .schematic .lbl{ fill:var(--text-muted); font-size:8px; letter-spacing:.3px; }
+  .schematic .temp{ font-size:10.5px; font-weight:600; }
+  .schematic .temp.hot{ fill:var(--hot); }
+  .schematic .temp.cool{ fill:var(--cool); }
+  .schematic .box-label{ font-size:9px; fill:var(--text-muted); }
+  .schematic .layer{ stroke:var(--line); stroke-width:1; }
+  .schematic .pipe{ fill:none; stroke-width:3; }
+  .schematic .pipe.hot{ stroke:var(--hot); }
+  .schematic .pipe.cool{ stroke:var(--cool); }
+  .schematic .pump{ fill:var(--panel-raised); stroke:var(--flow); stroke-width:1.5; }
+  .schematic .pwmlabel{ font-size:10px; fill:var(--flow); font-weight:600; }
   .layout{
     display:grid;
     grid-template-columns:300px 1fr;
@@ -179,8 +211,53 @@
 <body>
 
 <header>
-  <h1>Zonnecollector Digital Twin<span class="dot">.</span></h1>
-  <p>Vereenvoudigd thermisch model van de ECO-boiler zonnelus, aangestuurd door dezelfde 5-fasen PID-regellogica als de echte Photon-sketch. Verschuif de zon, de boilertemperatuur en de P/I/D-parameters, en kijk hoe het systeem reageert.</p>
+  <div class="header-inner">
+    <div class="header-text">
+      <h1>Zonnecollector Digital Twin<span class="dot">.</span></h1>
+      <p>Vereenvoudigd thermisch model van de ECO-boiler zonnelus, aangestuurd door dezelfde 5-fasen PID-regellogica als de echte Photon-sketch.</p>
+    </div>
+    <div class="schematic">
+      <svg viewBox="0 0 480 150" xmlns="http://www.w3.org/2000/svg">
+        <!-- Collector bovenaan -->
+        <rect x="150" y="10" width="180" height="30" rx="4" fill="none" stroke="#3a4a5c" stroke-width="1.5"/>
+        <text x="240" y="28" text-anchor="middle" class="box-label">COLLECTOR</text>
+
+        <!-- Leiding: collector-uitgang (rechts) naar spiraal-ingang -->
+        <path class="pipe hot" id="pipeHot" d="M330,25 H400 V60" stroke-dasharray="6 6"/>
+        <text x="405" y="45" class="temp hot" id="svgTsolOut">Tsol 45°</text>
+
+        <!-- Boiler: 6 lagen, BotL onderaan tot TopH bovenaan -->
+        <g id="boiler">
+          <rect x="60" y="55" width="180" height="85" rx="4" fill="none" stroke="#3a4a5c" stroke-width="1.5"/>
+          <!-- lagen, elk 85/6 ≈ 14.17 hoog, van boven (TopH) naar onder (BotL) -->
+          <rect class="layer" x="60" y="55.0" width="180" height="14.17" fill="#212b37"/>
+          <text x="70" y="65" class="lbl">TopH</text>
+          <rect class="layer" x="60" y="69.2" width="180" height="14.17" fill="#1e2733"/>
+          <text x="70" y="79" class="lbl">TopL</text>
+          <rect class="layer" x="60" y="83.3" width="180" height="14.17" fill="#212b37"/>
+          <text x="70" y="93" class="lbl">MidH</text>
+          <rect class="layer" x="60" y="97.5" width="180" height="14.17" fill="#1e2733"/>
+          <text x="70" y="107" class="lbl">MidL</text>
+          <rect class="layer" id="botHLayer" x="60" y="111.7" width="180" height="14.17" fill="#2a2118"/>
+          <text x="70" y="121" class="lbl">BotH — spiraal</text>
+          <rect class="layer" x="60" y="125.8" width="180" height="14.17" fill="#1e2733"/>
+          <text x="70" y="136" class="lbl">BotL</text>
+          <!-- spiraal-icoon binnen de BotH-laag -->
+          <path d="M395,119 q-6,-6 -12,0 q-6,6 -12,0 q-6,-6 -12,0 q-6,6 -12,0" fill="none" stroke="#e8c95c" stroke-width="1.5"/>
+        </g>
+        <text x="405" y="112" class="temp hot" id="svgPreSpiral">45°</text>
+        <text x="345" y="150" class="temp cool" id="svgPostSpiral" text-anchor="middle">38°</text>
+
+        <!-- Leiding: spiraal-uitgang naar pomp naar collector-ingang (links) -->
+        <path class="pipe cool" id="pipeCool" d="M340,127 H60 V25 H150" stroke-dasharray="6 6"/>
+
+        <!-- Pomp op de retourleiding, vóór de collector-ingang -->
+        <circle class="pump" cx="90" cy="25" r="9"/>
+        <path d="M86,20 L94,25 L86,30 Z" fill="var(--flow)"/>
+        <text x="90" y="43" text-anchor="middle" class="pwmlabel" id="svgPwm">PWM 0</text>
+      </svg>
+    </div>
+  </div>
 </header>
 
 <div class="layout">
@@ -335,7 +412,7 @@ function resetSim(){
   simMinutes = 0; stagnantMinutes = 999;
   spikeValue = 0; spikeRemaining = 0;
   cloudUntil = -1; cloudSaved = null;
-  tempSeries = {tc:[], tb:[], dt:[]}; pwmSeries = [];
+  tempSeries = {tc:[], tb:[]}; pwmSeries = [];
   logLines = [];
   logMsg('STOP', 'Simulatie gereset.');
   updateCharts(true);
@@ -484,21 +561,54 @@ function updateBadgeAndReadouts(phase, sensorTC){
   document.getElementById('rTB').textContent = TB.toFixed(1) + '°C';
   document.getElementById('rDT').textContent = dTFiltered.toFixed(1) + '°C';
   document.getElementById('rPWM').textContent = Math.round(pwmValue);
+  updateSchematic(sensorTC);
+}
+
+// ---------------------------------------------------------------------
+// Circuitschema: collector → spiraal in BotH-laag → pomp → collector
+// ---------------------------------------------------------------------
+let flowOffset = 0;
+function updateSchematic(sensorTC){
+  // Temperatuur na de spiraal: puur illustratief - hoe lager de PWM, hoe
+  // meer warmte het water per doorgang afgeeft (langere contacttijd), dus
+  // hoe dichter de uittemperatuur bij BotH ligt i.p.v. bij Tsol.
+  const postSpiral = TB + (sensorTC - TB) * (1 - Math.exp(-pwmValue/60));
+
+  document.getElementById('svgTsolOut').textContent = 'Tsol ' + sensorTC.toFixed(0) + '°';
+  document.getElementById('svgPreSpiral').textContent = sensorTC.toFixed(0) + '°';
+  document.getElementById('svgPostSpiral').textContent = postSpiral.toFixed(0) + '°';
+  document.getElementById('svgPwm').textContent = 'PWM ' + Math.round(pwmValue);
+
+  // BotH-laag kleurt mee met de werkelijke boilertemperatuur (enige laag
+  // die het model effectief simuleert; de andere 5 zijn illustratieve labels)
+  const warmth = Math.max(0, Math.min(1, (TB - 20) / 60));
+  const r = Math.round(42 + warmth*(232-42));
+  const g = Math.round(33 + warmth*(97-33));
+  const b = Math.round(24 + warmth*(24-24));
+  document.getElementById('botHLayer').setAttribute('fill', `rgb(${r},${g},${b})`);
+
+  // Doorstroom-animatie: sneller bewegende streepjes bij hogere PWM, stil bij PWM=0
+  flowOffset -= pwmValue / 25 + (pwmValue>0 ? 0.3 : 0);
+  const hotPipe = document.getElementById('pipeHot');
+  const coolPipe = document.getElementById('pipeCool');
+  hotPipe.style.strokeDashoffset = flowOffset;
+  coolPipe.style.strokeDashoffset = flowOffset;
+  hotPipe.style.opacity = pwmValue > 0 ? 1 : 0.35;
+  coolPipe.style.opacity = pwmValue > 0 ? 1 : 0.35;
 }
 
 // ---------------------------------------------------------------------
 // Grafieken
 // ---------------------------------------------------------------------
-let tempSeries = {tc:[], tb:[], dt:[]}, pwmSeries = [];
+let tempSeries = {tc:[], tb:[]}, pwmSeries = [];
 const MAXPTS = 180;
 
 function pushHistory(sensorTC){
   tempSeries.tc.push(sensorTC);
   tempSeries.tb.push(TB);
-  tempSeries.dt.push(dTFiltered);
   pwmSeries.push(pwmValue);
   if (tempSeries.tc.length > MAXPTS) {
-    tempSeries.tc.shift(); tempSeries.tb.shift(); tempSeries.dt.shift(); pwmSeries.shift();
+    tempSeries.tc.shift(); tempSeries.tb.shift(); pwmSeries.shift();
   }
 }
 
@@ -510,14 +620,12 @@ const chartTemp = new Chart(document.getElementById('chartTemp'), {
   data:{ labels:[], datasets:[
     { label:'Tsol', data:[], borderColor:'#ff8a3d', borderWidth:2, pointRadius:0, tension:.15, yAxisID:'y' },
     { label:'BotH', data:[], borderColor:'#4fb0d9', borderWidth:2, pointRadius:0, tension:.15, yAxisID:'y' },
-    { label:'dT gefilterd', data:[], borderColor:'#e8c95c', borderWidth:1.5, borderDash:[4,3], pointRadius:0, tension:.15, yAxisID:'y1' },
   ]},
   options:{ responsive:true, animation:false, maintainAspectRatio:true,
     plugins:{ legend:{ labels:{ color:mutedText, boxWidth:12, font:{size:11} } } },
     scales:{
       x:{ display:false },
-      y:{ position:'left', grid:{color:grid}, ticks:{color:mutedText}, title:{display:true,text:'°C',color:mutedText} },
-      y1:{ position:'right', grid:{display:false}, ticks:{color:mutedText}, title:{display:true,text:'dT °C',color:mutedText} },
+      y:{ position:'left', min:0, max:100, grid:{color:grid}, ticks:{color:mutedText}, title:{display:true,text:'°C',color:mutedText} },
     } }
 });
 const chartPwm = new Chart(document.getElementById('chartPwm'), {
@@ -538,7 +646,6 @@ function updateCharts(){
   chartTemp.data.labels = labels;
   chartTemp.data.datasets[0].data = tempSeries.tc;
   chartTemp.data.datasets[1].data = tempSeries.tb;
-  chartTemp.data.datasets[2].data = tempSeries.dt;
   chartTemp.update('none');
 
   chartPwm.data.labels = labels;

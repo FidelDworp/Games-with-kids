@@ -1,4 +1,4 @@
-//v5 - 31jul26
+//v6 - 31jul26
 
 <!DOCTYPE html>
 <html lang="nl">
@@ -390,6 +390,15 @@
       <input type="range" id="kd" min="0" max="5" step="0.1" value="0">
     </div>
 
+    <h2 style="margin-top:22px;">Systeem</h2>
+    <div class="field">
+      <label>PWM-bodem
+        <span><span class="info-icon" tabindex="0" role="button" aria-label="Info over PWM-bodem" data-tip="Info over deze regeling" data-modal="pwmmin">i</span>
+        <span class="val" id="pwmminVal">15</span></span>
+      </label>
+      <input type="range" id="pwmmin" min="10" max="100" step="5" value="15">
+    </div>
+
     <h2 style="margin-top:22px;">Simulatie</h2>
     <div class="field">
       <label>Snelheid <span class="val" id="speedVal">8× (min/sec)</span></label>
@@ -444,7 +453,9 @@
 const DT_TARGET = 1.8;
 const DT_START = 2.0;
 const DT_HARD_STOP = 0.0;
-const PWM_MIN = 15;
+// PWM_MIN is nu bedienbaar via de slider (was een vaste 15) - laat toe om de
+// dode-tijd-hypothese zelf te testen: laag = trager/onstabieler, hoog = korte
+// vertraging zoals op 17jul26
 const PWM_RAMP_START = 20;
 const PWM_RAMP_STEP_PER_MIN = 10;
 const PWM_RAMP_DURATION_MIN = 3;
@@ -471,6 +482,7 @@ function spikeMagnitudeFor(stagnantMin){
 }
 
 let TC = 10, TB = 10;
+let TCsensedLag = 10;  // "gevoelde" collectortemp, met dode-tijd-naijling t.o.v. TC
 let dTFiltered = 0, dTFilterInit = false;
 let relayState = false, pwmValue = 0;
 let pidIntegral = 0, pidPrevError = 0;
@@ -487,6 +499,7 @@ const bothEl = document.getElementById('both');
 const kpEl = document.getElementById('kp');
 const kiEl = document.getElementById('ki');
 const kdEl = document.getElementById('kd');
+const pwmMinEl = document.getElementById('pwmmin');
 const speedEl = document.getElementById('speed');
 
 function syncLabels(){
@@ -495,9 +508,10 @@ function syncLabels(){
   document.getElementById('kpVal').textContent = (+kpEl.value).toFixed(1);
   document.getElementById('kiVal').textContent = (+kiEl.value).toFixed(2);
   document.getElementById('kdVal').textContent = (+kdEl.value).toFixed(1);
+  document.getElementById('pwmminVal').textContent = pwmMinEl.value;
   document.getElementById('speedVal').textContent = speedEl.value + '× (min/sec)';
 }
-[sunEl,kpEl,kiEl,kdEl,speedEl].forEach(e=>e.addEventListener('input', syncLabels));
+[sunEl,kpEl,kiEl,kdEl,pwmMinEl,speedEl].forEach(e=>e.addEventListener('input', syncLabels));
 bothEl.addEventListener('input', ()=>{ TB = +bothEl.value; syncLabels(); });
 let bothDragging = false;
 bothEl.addEventListener('mousedown', ()=>{ bothDragging = true; });
@@ -523,6 +537,7 @@ document.getElementById('cloudBtn').addEventListener('click', ()=>{
 
 function resetSim(){
   TC = +bothEl.value; TB = +bothEl.value;
+  TCsensedLag = +bothEl.value;
   dTFiltered = 0; dTFilterInit = false;
   relayState = false; pwmValue = 0;
   pidIntegral = 0; pidPrevError = 0;
@@ -564,6 +579,14 @@ const pidExplanations = {
       <p>Reageert niet op de fout zelf, maar op hóé snel die verandert — een soort rem die vooruitkijkt en al bijstuurt vóór de fout zelf groot wordt.</p>
       <p class="up"><span class="tag">Hoger:</span> dempt een plotse piek sneller af, bijvoorbeeld net na het opstarten van de pomp wanneer de "hete-plug"-transiënt loskomt — minder overshoot. Bij een té hoge waarde kan de regelaar wel gevoeliger worden voor kleine schommelingen in het signaal.</p>
       <p class="down"><span class="tag">Lager (of 0):</span> laat pieken meer uitschieten vóór de regelaar bijstuurt, met een tragere terugkeer naar het doel als gevolg.</p>
+    `
+  },
+  pwmmin: {
+    title: 'PWM-bodem — dode tijd',
+    body: `
+      <p>Dit is geen PID-parameter, maar bepaalt hoe laag de pomp mag draaien tijdens REGIME. Bij lage PWM beweegt het water trager door de leiding, waardoor de sensor pas met vertraging (dode tijd) voelt wat er in de collector gebeurt.</p>
+      <p class="up"><span class="tag">Hoger:</span> kortere vertraging, makkelijker te regelen. Op de echte installatie bleef dT acht uur lang strak op 2,3-2,7°C bij een PWM-bodem van 60 (17 juli).</p>
+      <p class="down"><span class="tag">Lager:</span> langere vertraging, en de PID kan in een zelfstandige slingering terechtkomen — ongeacht hoe Kp/Ki/Kd staan ingesteld. Op de echte installatie gaven vier heel verschillende PID-instellingen allemaal hetzelfde ~9-11-minuten-slingerpatroon bij een PWM-bodem van 15, wat net naar deze oorzaak wees i.p.v. naar de PID zelf.</p>
     `
   }
 };
@@ -623,6 +646,7 @@ function step(){
   }
 
   const sunTarget = +sunEl.value;
+  const PWM_MIN = +pwmMinEl.value;
 
   // --- Fysica (gebruikt de PWM van de vórige cyclus, net als de echte telemetrie-lag) ---
   TC += HEAT_GAIN * (sunTarget - TC);
@@ -633,7 +657,19 @@ function step(){
 
   if (pwmValue < 1) stagnantMinutes += 1; else stagnantMinutes = 0;
 
-  let sensorTC = TC;
+  // --- Dode tijd: flow-afhankelijke vertraging tussen de werkelijke en de
+  // "gevoelde" collectortemperatuur (31jul26, n.a.v. de echte-hardware-vondst
+  // dat 4 verschillende PID-instellingen allemaal hetzelfde slingerpatroon
+  // gaven). Vereenvoudigde exponentiële naijling i.p.v. een letterlijke
+  // transportvertraging: bij lage PWM beweegt het water trager door de
+  // leiding, dus reageert de sensor trager op wat er in de collector gebeurt.
+  // Bevriest terwijl de pomp stilstaat (geen doorstroming = geen nieuwe info).
+  if (pwmValue >= 1) {
+    const deadTimeGain = Math.min(1, Math.max(0.05, pwmValue / 60));
+    TCsensedLag += deadTimeGain * (TC - TCsensedLag);
+  }
+
+  let sensorTC = TCsensedLag;
   if (spikeRemaining > 0) {
     sensorTC += spikeValue * (spikeRemaining / 2.0);
     spikeRemaining -= 1;

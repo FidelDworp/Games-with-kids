@@ -1,11 +1,9 @@
-//v9 2aug
-
 <!DOCTYPE html>
 <html lang="nl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Zonnecollector Digital Twin — PID-simulator</title>
+<title>Zonnecollector Digital Twin — PID20-simulator</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   :root{
@@ -256,10 +254,12 @@
     border:1px solid var(--line);
   }
   .phase .led{ width:8px; height:8px; border-radius:50%; background:currentColor; box-shadow:0 0 8px currentColor; }
+  .phase.VROEGSTART{ color:var(--hot); }
   .phase.OPWARMEN{ color:var(--warn); }
   .phase.REGIME{ color:var(--flow); }
   .phase.AFBOUW{ color:var(--cool); }
   .phase.STOP{ color:var(--text-muted); }
+  .phase.WACHT{ color:var(--text-muted); }
   .phase.THERMOSIFON{ color:var(--cool); }
   .phase.OVERVERHIT{ color:var(--alarm); }
 
@@ -296,7 +296,7 @@
   <div class="header-inner">
     <div class="header-text">
       <h1>Zonnecollector Digital Twin<span class="dot">.</span></h1>
-      <p>Vereenvoudigd thermisch model van de ECO-boiler zonnelus, aangestuurd door dezelfde 5-fasen PID-regellogica als de echte Photon-sketch.</p>
+      <p>Vereenvoudigd thermisch model van de ECO-boiler zonnelus, aangestuurd door dezelfde regellogica als de echte Photon-sketch (PID20, 3aug26) — inclusief dode tijd, de gradiënt-gebaseerde OPWARMEN-fase en de nieuwe VROEGSTART-fase.</p>
     </div>
     <div class="schematic">
       <svg viewBox="0 0 460 200" xmlns="http://www.w3.org/2000/svg">
@@ -395,9 +395,14 @@
     <div class="field">
       <label>PWM-bodem
         <span><span class="info-icon" tabindex="0" role="button" aria-label="Info over PWM-bodem" data-tip="Info over deze regeling" data-modal="pwmmin">i</span>
-        <span class="val" id="pwmminVal">60</span></span>
+        <span class="val" id="pwmminVal">15</span></span>
       </label>
-      <input type="range" id="pwmmin" min="10" max="100" step="5" value="60">
+      <input type="range" id="pwmmin" min="10" max="100" step="5" value="15">
+    </div>
+    <div class="field">
+      <label>Opstart: OPWARMEN / VROEGSTART
+        <span><span class="info-icon" tabindex="0" role="button" aria-label="Info over de opstartfasen" data-tip="Info over deze regeling" data-modal="opstart">i</span></span>
+      </label>
     </div>
 
     <h2 style="margin-top:22px;">Simulatie</h2>
@@ -450,20 +455,22 @@
 
 <script>
 // =====================================================================
-// PARAMETERS DIE 1-OP-1 UIT DE ECHTE PHOTON-SKETCH KOMEN (1aug26)
+// PARAMETERS DIE 1-OP-1 UIT DE ECHTE PHOTON-SKETCH KOMEN (PID20, 3aug26)
 // =====================================================================
 const DT_TARGET = 2.5;
-const DT_TRICKLE_START = 0.0;   // 1aug26: nieuwe, vroege starttrigger (i.p.v. DT_START)
-const DT_START = 3.0;           // 1aug26: enkel nog voor de thermosifon-check
+const DT_TRICKLE_START = 0.0;   // 1aug26: vroege trickle-start i.p.v. te wachten op DT_START
+const DT_START = 3.0;           // 1aug26: enkel nog voor de thermosifon-veiligheid
 const DT_HARD_STOP = 0.0;
-// PWM_MIN is bedienbaar via de slider (standaard nu 60, de actief geteste
-// waarde op de installatie - laat toe om de dode-tijd-hypothese zelf te
-// testen: laag = trager/onstabieler, hoog = korte vertraging zoals op 17jul26)
+// PWM_MIN is bedienbaar via de slider - laat toe om de dode-tijd-hypothese
+// zelf te testen: laag = trager/onstabieler, hoog = korte vertraging zoals
+// op 17jul26 op de echte installatie
+const STOP_PATIENCE_MIN = 5;
+const PWM_MAX_DELTA_PER_MIN = 150;
+const DT_FILTER_ALPHA = 0.3;
+const PID_I_MAX = 50;
 
-// OPWARMEN (1aug26, vervangt de vaste OPSTART-ramp): PWM klimt traag en
-// zelf-aanpassend mee met de dT-gradiënt (steil=sneller, vlak=trager), tot
-// dT_gefilterd een paar minuten stabiel is gebleven - met een vaste
-// bovengrens als vangnet. Zie de Photon-sketch voor de volledige uitleg.
+// OPWARMEN (1aug26, vervangt de oude vaste ramp): PWM klimt evenredig met hoe
+// steil dT_gefilterd nog stijgt, tot het stabiliseert of een vangnet raakt.
 const WARMUP_PWM_START = 20;
 const WARMUP_STEP_MIN = 4;
 const WARMUP_STEP_MAX = 15;
@@ -471,12 +478,22 @@ const WARMUP_GRADIENT_REF = 2.0;
 const WARMUP_PWM_CEILING = 90;
 const WARMUP_STABLE_THRESHOLD = 0.3;
 const WARMUP_STABLE_MINUTES_NEEDED = 3;
-const WARMUP_MAX_MINUTES = 10;
+const WARMUP_MAX_MINUTES = 10.0;
 
-const STOP_PATIENCE_MIN = 5;
-const PWM_MAX_DELTA_PER_MIN = 150;
-const DT_FILTER_ALPHA = 0.3;
-const PID_I_MAX = 50;
+// VROEGSTART (2aug26 basis, 3aug26: lineaire PWM-formule + stabiliteits-duur)
+// Terwijl de pomp stilstaat, volgen we de rauwe Tsol-gradiënt (niet dT) - blijft
+// die een paar minuten na elkaar boven de ondergrens, dan start de pomp
+// preventief op een PWM die lineair meeschaalt met hoe steil de gradiënt op
+// dat moment is (geen PID). De duur wacht tot dT_gefilterd zelf stabiliseert,
+// met een vast vangnet - dit dient meteen als een natuurlijke dode-tijd-meting.
+const EARLY_START_GRADIENT_MIN = 0.5;
+const EARLY_START_GRADIENT_REF = 3.0;
+const EARLY_START_PWM_MIN = 30;
+const EARLY_START_PWM_MAX = 100;
+const EARLY_START_STABLE_THRESHOLD = 0.3;
+const EARLY_START_STABLE_MINUTES_NEEDED = 3;
+const EARLY_START_MAX_MINUTES = 40.0;
+const GRADIENT_CONFIRM_MINUTES = 3;
 
 // =====================================================================
 // VEREENVOUDIGD FYSISCH MODEL (educatief, niet kwantitatief exact)
@@ -500,7 +517,6 @@ let dTFiltered = 0, dTFilterInit = false;
 let relayState = false, pwmValue = 0;
 let pidIntegral = 0, pidPrevError = 0;
 let pumpStartMinute = 0, floorMinutes = 0;
-let warmupActive = false, warmupPwmTarget = 0, prevDTForGradient = 0, warmupStableMinutes = 0;
 let simMinutes = 0;
 let stagnantMinutes = 999;
 let spikeValue = 0, spikeRemaining = 0;
@@ -509,6 +525,14 @@ let naturalClouds = false;
 let cloudPhase = 0, cloudNoise = 0;
 let paused = false;
 let accMin = 0, lastFrameTs = null;
+
+// OPWARMEN-state
+let warmupActive = false, warmupPwmTarget = 0, prevDTForGradient = 0, warmupStableMinutes = 0;
+
+// VROEGSTART-state
+let earlyStartActive = false, earlyStartTriggered = false, earlyStartTriggerGradient = 0;
+let earlyStartBeginMinute = 0, earlyStartPwmTarget = 0, prevDTForEarlyStart = 0, earlyStartStableMinutes = 0;
+let prevTsunForGradient = 0, tsunGradientTrackInit = false, tsunGradientStableMinutes = 0;
 
 const sunEl = document.getElementById('sun');
 const bothEl = document.getElementById('both');
@@ -564,11 +588,14 @@ function resetSim(){
   relayState = false; pwmValue = 0;
   pidIntegral = 0; pidPrevError = 0;
   pumpStartMinute = 0; floorMinutes = 0;
-  warmupActive = false; warmupPwmTarget = 0; prevDTForGradient = 0; warmupStableMinutes = 0;
   simMinutes = 0; stagnantMinutes = 999;
   spikeValue = 0; spikeRemaining = 0;
   cloudUntil = -1; cloudSaved = null;
   cloudPhase = 0; cloudNoise = 0;
+  warmupActive = false; warmupPwmTarget = 0; prevDTForGradient = 0; warmupStableMinutes = 0;
+  earlyStartActive = false; earlyStartTriggered = false; earlyStartTriggerGradient = 0;
+  earlyStartBeginMinute = 0; earlyStartPwmTarget = 0; prevDTForEarlyStart = 0; earlyStartStableMinutes = 0;
+  prevTsunForGradient = 0; tsunGradientTrackInit = false; tsunGradientStableMinutes = 0;
   tempSeries = {tc:[], tb:[]}; pwmSeries = [];
   logLines = [];
   logMsg('STOP', 'Simulatie gereset.');
@@ -584,8 +611,8 @@ const pidExplanations = {
   kp: {
     title: 'Kp — Proportioneel',
     body: `
-      <p>Reageert onmiddellijk op hoe ver dT_gefilterd op dit moment van het doel (1,8°C) afligt. Hoe groter die fout, hoe harder de pomp meteen bijstuurt — zonder geheugen van het verleden.</p>
-      <p class="up"><span class="tag">Hoger:</span> minder blijvende afwijking t.o.v. het doel, en een snellere reactie. Bij een constante zon-intensiteit pendelt dT_gefilterd bijvoorbeeld rond 4,2°C met Kp=1, rond 2,9°C met Kp=6, en rond 2,3°C met Kp=25 — de regelaar komt dus steeds dichter bij 1,8°C, maar bereikt het nooit helemaal op zichzelf.</p>
+      <p>Reageert onmiddellijk op hoe ver dT_gefilterd op dit moment van het doel (2,5°C) afligt. Hoe groter die fout, hoe harder de pomp meteen bijstuurt — zonder geheugen van het verleden.</p>
+      <p class="up"><span class="tag">Hoger:</span> minder blijvende afwijking t.o.v. het doel, en een snellere reactie. Bij een constante zon-intensiteit en zonder I/D (puur proportioneel) pendelt dT_gefilterd bijvoorbeeld rond 4,2°C met Kp=1, rond 3,1°C met Kp=8, en rond 3,0°C met Kp=15 — de regelaar komt dus steeds dichter bij 2,5°C, maar bereikt het nooit helemaal op zichzelf.</p>
       <p class="down"><span class="tag">Lager:</span> trager, en de pomp blijft verder van het doel hangen. Bij Kp=0 reageert de pomp helemaal niet meer op de fout.</p>
     `
   },
@@ -593,7 +620,7 @@ const pidExplanations = {
     title: 'Ki — Integrerend',
     body: `
       <p>Houdt bij hoe lang en hoe erg dT_gefilterd al van het doel afwijkt, en blijft die kleine, aanhoudende afwijking die Kp alleen laat liggen, langzaam wegduwen.</p>
-      <p class="up"><span class="tag">Hoger:</span> duwt de resterende afwijking verder weg richting het doel. Bij Kp=4 blijft bijvoorbeeld gemiddeld 2,98°C hangen met Ki=0, zakt dat naar 1,69°C bij Ki=0,5, en naar 1,79°C (vrijwel exact op doel) bij Ki=4. Té hoog kan er wel voor zorgen dat de regelaar na een storing (bv. een voorbijtrekkende wolk) een tijdje "doorschiet", omdat de opgebouwde correctie nog moet wegebben.</p>
+      <p class="up"><span class="tag">Hoger:</span> duwt de resterende afwijking verder weg richting het doel. Bij Kp=4 blijft bijvoorbeeld gemiddeld 3,35°C hangen met Ki=0, zakt dat naar 2,88°C bij Ki=0,3, en naar 2,63°C (vlak bij het doel van 2,5°C) bij Ki=1,0. Té hoog kan er wel voor zorgen dat de regelaar na een storing (bv. een voorbijtrekkende wolk) een tijdje "doorschiet", omdat de opgebouwde correctie nog moet wegebben.</p>
       <p class="down"><span class="tag">Lager:</span> laat een kleine, structurele afwijking liggen die nooit helemaal verdwijnt, ook niet na lange tijd.</p>
     `
   },
@@ -611,6 +638,15 @@ const pidExplanations = {
       <p>Dit is geen PID-parameter, maar bepaalt hoe laag de pomp mag draaien tijdens REGIME. Bij lage PWM beweegt het water trager door de leiding, waardoor de sensor pas met vertraging (dode tijd) voelt wat er in de collector gebeurt.</p>
       <p class="up"><span class="tag">Hoger:</span> kortere vertraging, makkelijker te regelen. Op de echte installatie bleef dT acht uur lang strak op 2,3-2,7°C bij een PWM-bodem van 60 (17 juli).</p>
       <p class="down"><span class="tag">Lager:</span> langere vertraging, en de PID kan in een zelfstandige slingering terechtkomen — ongeacht hoe Kp/Ki/Kd staan ingesteld. Op de echte installatie gaven vier heel verschillende PID-instellingen allemaal hetzelfde ~9-11-minuten-slingerpatroon bij een PWM-bodem van 15, wat net naar deze oorzaak wees i.p.v. naar de PID zelf.</p>
+    `
+  },
+  opstart: {
+    title: 'OPWARMEN & VROEGSTART',
+    body: `
+      <p>Vóór REGIME (de PID) het overneemt, doorloopt de pomp altijd eerst een open-lus opstartfase — zonder Kp/Ki/Kd, gewoon een vaste of geleidelijk klimmende PWM. Er zijn twee manieren waarop zo'n opstart kan beginnen.</p>
+      <p><span class="tag" style="color:var(--warn)">OPWARMEN</span> is de gewone weg: zodra dT_gefilterd boven 0°C komt, klimt de PWM elke minuut met 4 tot 15 stapjes (hoe steiler dT nog stijgt, hoe grotere stap), tot dT 3 minuten na elkaar nauwelijks nog verandert — dan pas is het circuit "opgewarmd" en neemt REGIME over.</p>
+      <p><span class="tag" style="color:var(--hot)">VROEGSTART</span> is de snelle weg: terwijl de pomp nog stilstaat, wordt ook gekeken hoe snel de collector zelf al opwarmt (los van dT). Klimt die minuten na elkaar snel genoeg, dan start de pomp preventief, nog vóór dT positief is — met een PWM die meeschaalt met hoe steil die stijging is. Dit dient meteen als een natuurlijke meting van de dode tijd in het systeem.</p>
+      <p class="down">Beide fasen laten <span class="tag">pidPrevError</span> gewoon meelopen (de "D-kick-fix"), zodat de D-term bij de eerste REGIME-stap nadien niet vergelijkt met een verouderde fout.</p>
     `
   }
 };
@@ -717,20 +753,42 @@ function step(){
   if (!dTFilterInit) { dTFiltered = dTraw; dTFilterInit = true; }
   else { dTFiltered += DT_FILTER_ALPHA * (dTraw - dTFiltered); }
 
-  // --- STOP als laatste redmiddel ---
+  // --- STOP als laatste redmiddel, of trickle-start + VROEGSTART-trigger ---
   let shouldBeOn, atFloor = false;
   if (relayState) {
-    // Tijdens OPWARMEN staat de PWM bewust laag/onder PWM_MIN - dat mag niet
-    // meetellen als "op de bodem vastzitten", anders zou een verse
-    // trickle-start zichzelf kunnen afbreken.
-    atFloor = (!warmupActive) && (pwmValue <= PWM_MIN + 2);
+    atFloor = (!warmupActive) && (!earlyStartActive) && (pwmValue <= PWM_MIN + 2);
     const tooLow = dTFiltered <= DT_HARD_STOP;
     if (atFloor && tooLow) floorMinutes += 1; else floorMinutes = 0;
     shouldBeOn = floorMinutes < STOP_PATIENCE_MIN;
   } else {
-    // 1aug26: vroege trickle-start bij dT>0 i.p.v. te wachten tot DT_START
+    // 1aug26: vroege trickle-start bij dT>0 i.p.v. te wachten tot DT_START -
+    // de OPWARMEN-fase hieronder vangt de rest rustig op
     shouldBeOn = dTFiltered > DT_TRICKLE_START;
     floorMinutes = 0;
+
+    // VROEGSTART-trigger (2aug26/3aug26): terwijl de pomp stilstaat volgen we
+    // de rauwe Tsol-gradiënt (sensorTC, niet dT en niet gefilterd). Blijft die
+    // GRADIENT_CONFIRM_MINUTES minuten na elkaar boven de ondergrens, dan
+    // starten we preventief - nog vóór dT positief is. De teller blijft
+    // bewust doorlopen over opeenvolgende OFF-cycli heen; enkel een echte
+    // pompstart of een terugval onder de drempel zet hem terug op nul.
+    if (!tsunGradientTrackInit) {
+      prevTsunForGradient = sensorTC;
+      tsunGradientTrackInit = true;
+    } else {
+      const tsunGradient = sensorTC - prevTsunForGradient;
+      prevTsunForGradient = sensorTC;
+      if (tsunGradient > EARLY_START_GRADIENT_MIN) {
+        tsunGradientStableMinutes++;
+      } else {
+        tsunGradientStableMinutes = 0;
+      }
+      if (tsunGradientStableMinutes >= GRADIENT_CONFIRM_MINUTES) {
+        earlyStartTriggered = true;
+        earlyStartTriggerGradient = tsunGradient;
+        shouldBeOn = true;
+      }
+    }
   }
 
   let phase = '', text = '';
@@ -748,12 +806,19 @@ function step(){
   }
 
   if (!shouldBeOn) {
+    const wasOn = relayState;
     relayState = false; pwmValue = 0;
     pidIntegral = 0; pidPrevError = 0; floorMinutes = 0;
-    warmupActive = false;  // volgende start begint weer vers
+    warmupActive = false;
+    earlyStartActive = false; earlyStartStableMinutes = 0;
     if (!phase) {
-      phase = 'STOP';
-      text = `dT gefilterd (${dTFiltered.toFixed(1)}°C) te laag — pomp uit, wacht tot dT > ${DT_TRICKLE_START}°C.`;
+      if (wasOn) {
+        phase = 'STOP';
+        text = `dT gefilterd (${dTFiltered.toFixed(1)}°C) te laag — pomp uit, wacht tot dT > ${DT_TRICKLE_START}°C.`;
+      } else {
+        phase = 'WACHT';
+        text = `dT=${dTFiltered.toFixed(1)}°C — wacht op start (Tsol-gradiënt stabiel ${tsunGradientStableMinutes}/${GRADIENT_CONFIRM_MINUTES} min).`;
+      }
     }
   } else {
     const justStarted = !relayState;
@@ -764,45 +829,88 @@ function step(){
       spikeValue = spikeMagnitudeFor(stagnantMinutes);
       spikeRemaining = 2;
       stagnantMinutes = 0;
-      warmupActive = true;
-      warmupPwmTarget = WARMUP_PWM_START;
-      warmupStableMinutes = 0;
-      prevDTForGradient = dTFiltered;
+      tsunGradientTrackInit = false;
+      tsunGradientStableMinutes = 0;
+
+      if (earlyStartTriggered) {
+        // Gestart via de Tsol-gradiënt, nog vóór dT positief werd - VROEGSTART
+        // i.p.v. de normale OPWARMEN-ramp.
+        earlyStartActive = true;
+        earlyStartBeginMinute = simMinutes;
+        warmupActive = false;
+        prevDTForEarlyStart = dTFiltered;
+        earlyStartStableMinutes = 0;
+        let frac = (earlyStartTriggerGradient - EARLY_START_GRADIENT_MIN) /
+                   (EARLY_START_GRADIENT_REF - EARLY_START_GRADIENT_MIN);
+        frac = Math.min(Math.max(frac, 0), 1);
+        earlyStartPwmTarget = EARLY_START_PWM_MIN + frac * (EARLY_START_PWM_MAX - EARLY_START_PWM_MIN);
+      } else {
+        earlyStartActive = false;
+        warmupActive = true;
+        warmupPwmTarget = WARMUP_PWM_START;
+        warmupStableMinutes = 0;
+        prevDTForGradient = dTFiltered;
+      }
+      earlyStartTriggered = false;
     }
     relayState = true;
-    const Kp = +kpEl.value, Ki = +kiEl.value, Kd = +kdEl.value;
-    let pwmDoel;
+
+    // VROEGSTART: PWM ligt al vast sinds de start; enkel de duur wordt hier
+    // nog bepaald, door te wachten tot dT_gefilterd zelf stabiliseert.
+    if (earlyStartActive && !justStarted) {
+      const esGradient = dTFiltered - prevDTForEarlyStart;
+      prevDTForEarlyStart = dTFiltered;
+      if (Math.abs(esGradient) < EARLY_START_STABLE_THRESHOLD) {
+        earlyStartStableMinutes++;
+      } else {
+        earlyStartStableMinutes = 0;
+      }
+      const minutesInEarlyStart = simMinutes - earlyStartBeginMinute;
+      if (earlyStartStableMinutes >= EARLY_START_STABLE_MINUTES_NEEDED || minutesInEarlyStart >= EARLY_START_MAX_MINUTES) {
+        earlyStartActive = false;   // klaar - PID (REGIME) neemt deze cyclus al over
+      }
+    }
 
     // OPWARMEN: evalueer, ná de allereerste minuut, of het circuit intussen
     // stabiel genoeg is om als "opgewarmd" te gelden - of anders hoe hard de
-    // PWM deze minuut mag bijklimmen, evenredig met hoe steil dT nog stijgt.
+    // PWM deze minuut mag bijklimmen, evenredig met hoe steil dT_gefilterd
+    // nog stijgt.
     if (warmupActive && !justStarted) {
       const gradient = dTFiltered - prevDTForGradient;
       prevDTForGradient = dTFiltered;
       const absGradient = Math.abs(gradient);
-
-      if (absGradient < WARMUP_STABLE_THRESHOLD) warmupStableMinutes++;
-      else warmupStableMinutes = 0;
-
+      if (absGradient < WARMUP_STABLE_THRESHOLD) {
+        warmupStableMinutes++;
+      } else {
+        warmupStableMinutes = 0;
+      }
       const minutesInWarmup = simMinutes - pumpStartMinute;
       if (warmupStableMinutes >= WARMUP_STABLE_MINUTES_NEEDED || minutesInWarmup >= WARMUP_MAX_MINUTES) {
-        warmupActive = false;  // circuit als opgewarmd beschouwd - PID neemt deze cyclus al over
+        warmupActive = false;   // circuit als opgewarmd beschouwd - PID neemt deze cyclus al over
       } else {
-        const stepSize = WARMUP_STEP_MIN + (WARMUP_STEP_MAX - WARMUP_STEP_MIN) *
-                         Math.min(Math.max(gradient / WARMUP_GRADIENT_REF, 0), 1);
-        warmupPwmTarget = Math.min(Math.max(warmupPwmTarget + stepSize, WARMUP_PWM_START), WARMUP_PWM_CEILING);
+        const step = WARMUP_STEP_MIN + (WARMUP_STEP_MAX - WARMUP_STEP_MIN) *
+                     Math.min(Math.max(gradient / WARMUP_GRADIENT_REF, 0), 1);
+        warmupPwmTarget = Math.min(Math.max(warmupPwmTarget + step, WARMUP_PWM_START), WARMUP_PWM_CEILING);
       }
     }
 
+    const Kp = +kpEl.value, Ki = +kiEl.value, Kd = +kdEl.value;
+    let pwmDoel;
+
     if (overheat) {
       pwmDoel = 255;
+    } else if (earlyStartActive) {
+      pwmDoel = earlyStartPwmTarget;
+      // D-kick-fix: pidPrevError blijft ook tijdens VROEGSTART meelopen
+      pidPrevError = dTFiltered - DT_TARGET;
+      phase = 'VROEGSTART';
+      text = `gradiënt=${earlyStartTriggerGradient.toFixed(1)}°C/min → PWM=${Math.round(earlyStartPwmTarget)}, stabiel ${earlyStartStableMinutes}/${EARLY_START_STABLE_MINUTES_NEEDED} min (max ${EARLY_START_MAX_MINUTES} min).`;
     } else if (warmupActive) {
       pwmDoel = warmupPwmTarget;
-      phase = 'OPWARMEN';
-      text = `Circuit warmt op: PWM=${Math.round(pwmDoel)}, stabiel ${warmupStableMinutes}/${WARMUP_STABLE_MINUTES_NEEDED} min (max ${WARMUP_MAX_MINUTES} min).`;
-      // D-kick-fix: pidPrevError blijft ook tijdens OPWARMEN meelopen, zodat
-      // REGIME nadien tegen de écht-vorige minuut vergelijkt.
+      // D-kick-fix (31jul26): pidPrevError blijft ook tijdens OPWARMEN mee
       pidPrevError = dTFiltered - DT_TARGET;
+      phase = 'OPWARMEN';
+      text = `Open-lus opwarmfase (losgekoppeld van de PID): PWM=${Math.round(warmupPwmTarget)}, stabiel ${warmupStableMinutes}/${WARMUP_STABLE_MINUTES_NEEDED} min.`;
     } else {
       const error = dTFiltered - DT_TARGET;
       if (!atFloor) pidIntegral = Math.min(Math.max(pidIntegral + error, -PID_I_MAX), PID_I_MAX);
@@ -824,7 +932,7 @@ function step(){
     else if (pwmValue > pwmDoel) pwmValue = Math.max(pwmValue - PWM_MAX_DELTA_PER_MIN, pwmDoel);
   }
 
-  if (phase !== lastLoggedPhase || phase === 'REGIME') {
+  if (phase !== lastLoggedPhase || phase === 'REGIME' || phase === 'OPWARMEN' || phase === 'VROEGSTART') {
     logMsg(phase, text);
     lastLoggedPhase = phase;
   }

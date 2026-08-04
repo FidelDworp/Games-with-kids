@@ -12,7 +12,7 @@ Dit README legt stap voor stap uit *waarom* de regeling doet wat ze doet — nie
 2. Dan **dode tijd**: een subtiel maar cruciaal begrip uit de regeltechniek, dat verklaart waarom de pomp soms bleef pendelen ongeacht hoe we de regelaar instelden.
 3. Dan de **regellogica zelf**: van "de pomp staat stil" tot "de pomp regelt zichzelf strak rond het doel", fase per fase, in de volgorde waarin ze ook echt na elkaar gebeuren op een zonnige ochtend.
 4. Dan **P, I en D** apart uitgelegd — de kern van een PID-regelaar, met concrete cijfers die we zelf met deze simulator geverifieerd hebben.
-5. Tot slot twee **echte bugs** die we onderweg vonden, als voorbeeld van hoe je in de praktijk fouten opspoort — dat is minstens even leerrijk als de regeltechniek zelf.
+5. Tot slot **drie echte problemen** die we onderweg vonden — twee klassieke bugs en één ontoereikende aanpak — als voorbeeld van hoe je in de praktijk fouten en tekortkomingen opspoort. Dat is minstens even leerrijk als de regeltechniek zelf.
 
 Je hoeft geen regel code te kunnen lezen om dit te volgen. Overal waar een formule staat, leggen we ook in woorden uit wat ze betekent.
 
@@ -26,13 +26,21 @@ De simulator simuleert eigenlijk maar **twee temperaturen**: de collector (Tsol,
 
 ### De collector warmt op en koelt af — Newton's afkoelingswet
 
-De collector trekt elke minuut een stukje dichter naar de ingestelde "zon-intensiteit" (een soort evenwichtstemperatuur — hoger betekent niet meer instraling in W/m², maar wél een hogere temperatuur waar de collector uiteindelijk naartoe zou gaan als er niets anders gebeurde):
+De **zoninstraling** (W/m², de schuifknop) is niet rechtstreeks een temperatuur — het is hoeveel zonnekracht er nu binnenkomt, net zoals op een echt zonnepaneel. Die instraling wordt eerst omgezet naar een **evenwichtstemperatuur**: de temperatuur waar de collector uiteindelijk naartoe zou gaan als er niets anders gebeurde (geen pomp, geen wind, niets):
 
 ```
-Tsol_nieuw = Tsol + HEAT_GAIN × (zon-intensiteit − Tsol)
+evenwicht = 18°C + instraling × 0,08
 ```
 
-Dit is exact dezelfde wiskundige vorm als Newton's afkoelingswet, die je wellicht al kent (of binnenkort tegenkomt) uit de fysica: hoe groter het verschil met de omgeving, hoe sneller de temperatuur verandert; hoe kleiner het verschil, hoe trager. Dat geeft een **exponentiële toenadering** naar de eindtemperatuur — nooit een rechte lijn, en nooit een abrupte sprong. `HEAT_GAIN = 0,12` bepaalt hoe snel die toenadering gaat (een soort tijdconstante).
+Bij 0 W/m² (nacht, of volledig bewolkt) is dat evenwicht dus gewoon de omgevingstemperatuur (18°C) — logisch, zonder instraling koelt alles af tot de omgeving. Bij volle zon (1000 W/m²) geeft dat een evenwicht van 98°C, een realistische stagnatietemperatuur voor een eenvoudige collector.
+
+Pas daarna volgt de eigenlijke collector-fysica — de temperatuur trekt elke minuut een stukje dichter naar dat evenwicht:
+
+```
+Tsol_nieuw = Tsol + HEAT_GAIN × (evenwicht − Tsol)
+```
+
+Dit is exact dezelfde wiskundige vorm als Newton's afkoelingswet, die je wellicht al kent (of binnenkort tegenkomt) uit de fysica: hoe groter het verschil met het evenwicht, hoe sneller de temperatuur verandert; hoe kleiner het verschil, hoe trager. Dat geeft een **exponentiële toenadering** — nooit een rechte lijn, en nooit een abrupte sprong. `HEAT_GAIN = 0,12` bepaalt hoe snel die toenadering gaat (een soort tijdconstante). Dit tweetrapsmodel (instraling → evenwicht → exponentiële toenadering) verklaart trouwens meteen waarom de Zoninstraling-schuifknop (W/m²) en de Tsol-uitlezing (°C) nooit dezelfde waarde tonen: de ene is de *oorzaak*, de andere het (vertraagde) *gevolg*.
 
 Zodra de pomp draait, onttrekt ze warmte evenredig met hoe hard ze draait (PWM) én hoe groot het verschil is met de boiler:
 
@@ -98,20 +106,22 @@ Zodra dT_gefilterd 3 minuten na elkaar minder dan 0,3°C verandert (of na een va
 
 *Waarom niet meteen de PID gebruiken?* Omdat de PID net na een herstart tegen de hete-plug-piek zou aanbotsen, en die piek verkeerd zou interpreteren als een structureel hoge fout — met een veel te hoge PWM-uitschieter tot gevolg. OPWARMEN laat het systeem eerst rustig tot rust komen.
 
-### 2b. VROEGSTART — de snelle weg (nieuw sinds 2-3 augustus)
+### 2b. VROEGSTART — de snelle weg (2-4 augustus)
 
 Op een snel zonnige ochtend hoeft de regeling niet te wachten tot dT zelf positief is: de collector zelf warmt dan al zichtbaar snel op. VROEGSTART start de pomp preventief zodra die gradiënt 3 minuten na elkaar boven 0,5°C/min blijft — nog vóór dT positief wordt.
 
-De kracht waarmee de pomp dan start, is **lineair evenredig** met hoe steil die gradiënt op het moment van triggeren was:
+De kracht waarmee de pomp start, is **lineair evenredig** met hoe steil de Tsol-gradiënt op dat moment is:
 
 ```
 frac = clamp((gradiënt − 0,5) / (3,0 − 0,5) , 0, 1)
 PWM  = 30 + frac × (100 − 30)
 ```
 
-Bij precies 0,5°C/min start de pomp dus zachtjes op PWM=30; bij 3,0°C/min of sneller op PWM=100. Dit is een **lineaire interpolatie** — een wiskundig begrip dat je uit de wiskundeles kent: een rechte lijn tussen twee punten, hier tussen (0,5 → 30) en (3,0 → 100).
+Bij precies 0,5°C/min draait de pomp dus zachtjes op PWM=30; bij 3,0°C/min of sneller op PWM=100. Dit is een **lineaire interpolatie** — een wiskundig begrip dat je uit de wiskundeles kent: een rechte lijn tussen twee punten, hier tussen (0,5 → 30) en (3,0 → 100).
 
-De duur van VROEGSTART ligt niet vast: net als bij OPWARMEN wacht ze tot dT_gefilterd zelf 3 minuten na elkaar stabiliseert (met 40 minuten als vangnet), vóór REGIME overneemt. Een mooi neveneffect: **VROEGSTART dient meteen als een natuurlijke meting van de dode tijd** — hoe lang het duurt vóór het systeem op een vaste, gekende PWM stabiliseert, vertelt iets over hoe traag het systeem op dat moment reageert.
+**Belangrijk (sinds 4 augustus): deze formule wordt elke minuut opnieuw doorgerekend**, met de dan-actuele gradiënt — niet één keer, vastgeklikt op het moment van de start. De eerste versie (2-3 augustus) berekende de PWM slechts éénmalig bij het triggeren en hield ze daarna vast voor de hele duur van VROEGSTART. Dat werkte prima bij een gematigd stijgende zon, maar liep vast op de echte installatie op een héél snel doorstijgende ochtend: de collector bleef opwarmen sneller dan die ene, vaste PWM kon wegkoelen, waardoor dT ongebreideld verder opliep — tot ver voorbij wat de PID daarna nog rustig kon opvangen. Door de PWM elke minuut opnieuw te laten "meeademen" met de actuele gradiënt, regelt VROEGSTART zichzelf voortdurend bij: blijft de collector snel stijgen, dan schuift de PWM mee omhoog; vlakt de stijging af (bijvoorbeeld omdat de pomp de warmte nu wél kan bijbenen), dan zakt de PWM vanzelf terug. Zie "Twee echte bugs die we vonden" verderop voor het volledige verhaal.
+
+De duur van VROEGSTART ligt niet vast: net als bij OPWARMEN wacht ze tot dT_gefilterd zelf 3 minuten na elkaar stabiliseert (met 40 minuten als vangnet), vóór REGIME overneemt. Een mooi neveneffect: **VROEGSTART dient meteen als een natuurlijke meting van de dode tijd** — hoe lang het duurt vóór het systeem op een gegeven PWM stabiliseert, vertelt iets over hoe traag het systeem op dat moment reageert.
 
 ### 3. REGIME — de PID neemt het over
 
@@ -166,9 +176,9 @@ Met dezelfde Kp duwt een hogere Ki die resterende afwijking verder weg richting 
 
 Probeer dit gerust zelf na met de sliders: zet Ki en Kd op 0, speel met Kp, en kijk of dT_gefilterd in de buurt van deze tabel uitkomt.
 
-## Twee echte bugs die we vonden — en wat we ervan leerden
+## Drie echte problemen die we vonden — en wat we ervan leerden
 
-Naast de regeltechniek zelf is er nog een tweede, minstens even waardevolle les in dit project: **hoe je fouten opspoort in een systeem dat er op het eerste gezicht goed uitziet.**
+Naast de regeltechniek zelf is er nog een tweede, minstens even waardevolle les in dit project: **hoe je fouten en tekortkomingen opspoort in een systeem dat er op het eerste gezicht goed uitziet.** De eerste twee zijn klassieke programmeerfouten (bugs); de derde is subtieler — geen fout in de code, maar een aanpak die in de praktijk ontoereikend bleek.
 
 ### Bug 1: de "derivative kick" — een D-term die vergeet dat de tijd stilstond
 
@@ -181,6 +191,14 @@ De fix is klein — `pidPrevError` gewoon laten meelopen, óók tijdens de open-
 Bij het bouwen van VROEGSTART moest een teller bijhouden hoeveel minuten na elkaar de Tsol-gradiënt al boven de drempel zat, *terwijl de pomp stilstaat*. De eerste versie reset die teller per ongeluk **elke keer opnieuw naar 0** zolang de pomp uit bleef — dus juist tijdens de minuten die hij hoorde te tellen. Het gevolg: de teller kon nooit voorbij 1 geraken, en VROEGSTART zou in de praktijk nooit triggeren.
 
 Dit is een klassiek voorbeeld van een **off-by-logic-fout**: de code "leest" op het eerste gezicht logisch, maar de volgorde waarin twee stukjes logica elkaar raken (de teller ophogen vs. de teller resetten) zit net verkeerd. Zulke fouten vind je zelden door de code gewoon te lezen — pas door de logica stap voor stap na te bootsen (of, zoals hier, door het uit te testen op de echte installatie en de resultaten kritisch te controleren) kom je ze op het spoor.
+
+### Probleem 3: een formule die op papier klopt, maar niet in élke situatie volstaat
+
+Dit is geen bug in de klassieke zin — de lineaire PWM-formule van VROEGSTART (3 augustus) deed precies wat ze moest doen: een PWM berekenen die evenredig is met de gradiënt op het triggermoment. Het probleem zat in een **impliciete aanname** die pas achteraf duidelijk werd: dat die ene, eerste gradiënt representatief zou blijven voor de rest van de opstartperiode.
+
+Op een gematigd zonnige ochtend klopt die aanname aardig. Maar op 4 augustus bleef de zon op de echte installatie *aanhoudend* snel doorstijgen — en een PWM die maar één keer werd vastgelegd, kon die aanhoudende stijging niet bijbenen. Het gevolg: dT liep op tot ruim **75°C** boven het doel van 2,5°C, ver voorbij wat de stabiliteits-uitgang of het vangnet van 40 minuten ooit kon opvangen, met een stevige PWM-piek (tot 224!) bij de overgang naar REGIME tot gevolg.
+
+De oplossing (zie hierboven): **dezelfde formule, maar elke minuut opnieuw doorgerekend** met de dan-actuele gradiënt, in plaats van met de gradiënt van bij het begin. Dat is een mooi, algemeen inzicht in regeltechniek: een correcte formule op één moment in de tijd toepassen is niet hetzelfde als een correcte *regeling* — een regeling moet zichzelf voortdurend blijven bijsturen op basis van wat er *nu* gebeurt, niet enkel op basis van wat er bij het begin gemeten werd. Dat onderscheid — een eenmalige berekening versus een doorlopende terugkoppeling — is eigenlijk de kern van wat een "regelaar" (zoals de PID) anders maakt dan een simpel, vooraf berekend recept.
 
 ## Het circuitschema (rechtsboven)
 
@@ -198,14 +216,25 @@ Elke PID-parameter (en de PWM-bodem, en de opstartfasen) heeft een klein ⓘ-ico
 
 ## Bediening
 
-- **Tsol — Zon-intensiteit**: de evenwichtstemperatuur waar de collector geleidelijk naartoe trekt — niet Tsol zelf (die volgt met vertraging, zoals in het echie).
-- **BotH — boilertemperatuur nu**: sleep om de boilertemperatuur onmiddellijk te wijzigen (bv. na warmwaterverbruik). De schuifknop volgt nadien ook automatisch de live gesimuleerde waarde, behalve terwijl je hem zelf vasthoudt.
+- **Zoninstraling** (W/m²): hoeveel zonnekracht er nu binnenkomt — niet de collectortemperatuur zelf. Die (Tsol) volgt hieruit, met vertraging (zie hieronder). 0 W/m² komt overeen met de omgevingstemperatuur als evenwicht, 1000 W/m² (volle zon) met zo'n 98°C stagnatietemperatuur. Sinds 4 augustus volgt deze schuifknop **altijd live** de actuele, effectieve waarde (dus inclusief een lopend scenario of wolkeneffect) — sleep je hem zelf, dan neem je de controle terug en stopt een eventueel lopend scenario.
+- **BotH — boilertemperatuur nu**: sleep om de boilertemperatuur onmiddellijk te wijzigen (bv. na warmwaterverbruik). Volgt net als Tsol altijd live de gesimuleerde waarde, behalve terwijl je hem zelf vasthoudt.
 - **Kp / Ki / Kd**: dezelfde drie PID-knoppen als in de echte sketch, elk met een ⓘ-info-knop.
 - **PWM-bodem**: hoe laag de pomp minimaal mag draaien tijdens REGIME — de knop om de dode-tijd-hypothese zelf te testen.
 - **Snelheid**: hoeveel gesimuleerde minuten er per reële seconde verstrijken (verandert niets aan het regelgedrag zelf — enkel aan hoe snel je het ziet gebeuren, want elke stap blijft intern exact 1 gesimuleerde minuut).
-- **☁ Wolk voorbij**: laat de zon-intensiteit 5 gesimuleerde minuten dalen en herstelt dan vanzelf.
-- **🌤 Wisselende bewolking**: schakelt een voortdurende, wisselvallige zonkracht in (trage golving + willekeurige "gril"), i.p.v. een constante waarde — handig om te zien hoe de regeling omgaat met écht grillig weer, in plaats van steeds dezelfde geteste situatie.
-- **↺ Reset**: begint opnieuw vanaf koude start. Alle sliders starten standaard op hun meest linkse (laagste) waarde, zodat je zelf van nul kan opbouwen.
+
+### Scenario's (nieuw, 4 augustus)
+
+Vier knoppen die de zon-intensiteit een tijdlang zelf besturen, als een lineaire ramp over een vaste, gesimuleerde duur — daarna blijft de zon gewoon op de bereikte waarde staan en heb je opnieuw handmatige controle:
+
+- **🌅 Ochtend start (zomer)**: een snelle, steile zonsopgang (100 → 950 W/m² over 22 gesimuleerde minuten). Steil genoeg om VROEGSTART te triggeren — mooi om de live-PWM-bijsturing in actie te zien. *Tip: zorg dat BotH niet te koud staat (de knop zet 'm automatisch op 45°C als dat nodig is) — anders springt dT al meteen over de trickle-drempel en krijgt VROEGSTART nooit de kans om te triggeren.*
+- **🌄 Ochtend start (winter)**: een trage, geleidelijke zonsopgang (50 → 500 W/m² over 100 gesimuleerde minuten). Blijft net onder de VROEGSTART-drempel, dus de pomp start via de klassieke OPWARMEN-weg — een leuk contrast met het zomer-scenario.
+- **🌇 Zonsondergang**: de instraling zakt geleidelijk weg naar 30 W/m² (70 gesimuleerde minuten) — handig om AFBOUW en STOP in actie te zien, zoals op een tanende avond.
+- **☁ Wolk passeert**: laat de zon-intensiteit 5 gesimuleerde minuten dalen en herstelt dan vanzelf.
+- **🌤 Wisselende wolken (sinus)**: schakelt een voortdurende, wisselvallige zonkracht in (trage golving + willekeurige "gril"), i.p.v. een constante waarde — handig om te zien hoe de regeling omgaat met écht grillig weer.
+
+**De scenario's zijn combineerbaar**: een wolk kan gewoon passeren tijdens een lopende ochtendstart, of de wisselende-wolken-modus aanstaan tijdens een zonsondergang — ze werken allemaal bovenop dezelfde onderliggende basiswaarde, in plaats van elkaar te overschrijven.
+
+- **↺ Reset**: begint opnieuw vanaf koude start, annuleert een eventueel lopend scenario, en zet alle sliders terug op hun startwaarde.
 
 ## Lessen uit de echte-hardware-tests
 
@@ -220,15 +249,17 @@ Een aantal harde lessen uit het heen-en-weer traject op de echte Photon-installa
 
 - [x] Dode tijd / transportvertraging simuleren, als vereenvoudigde flow-afhankelijke naijling
 - [x] OPWARMEN: gradiënt-gebaseerde open-lus opstartfase i.p.v. een vaste ramp
-- [x] VROEGSTART: preventieve start op basis van de Tsol-gradiënt, met lineaire PWM-formule en stabiliteits-gebaseerde duur
+- [x] VROEGSTART: preventieve start op basis van de Tsol-gradiënt, met lineaire PWM-formule
+- [x] VROEGSTART: PWM live bijgestuurd i.p.v. eenmalig vastgelegd bij de start
+- [x] Scenario-knoppen (ochtend zomer/winter, zonsondergang) en live-tracking sliders
 - [ ] De dode-tijd-benadering vervangen door een echte, vaste-lengte transportvertraging (delay-buffer) i.p.v. een exponentiële naijling, voor wie het verschil tussen de twee zelf wil voelen
-- [ ] Nachtblokkering (07u-21u) simuleren met een eigen kloklijn, los van de zon-intensiteit-slider
+- [ ] Nachtblokkering (07u-21u) simuleren met een eigen kloklijn, los van de zon-scenario's
 - [ ] Een "vergelijk twee instellingen naast elkaar"-modus (bv. huidige Kp/Ki/Kd naast een voorstel)
 - [ ] Kalibratie van de fysica-constanten op een echte, geëxporteerde dag data (curve fitting) i.p.v. "aanvoelt goed"
 - [ ] Exporteren van een simulatiesessie als CSV, in hetzelfde formaat als de echte Google Sheets-log, om ze naast elkaar te kunnen leggen
 - [ ] Mobiele lay-out verder verfijnen (grafieken en schema worden vrij klein op smalle schermen)
 - [ ] Eventueel ook live temperaturen simuleren voor de vijf niet-gemodelleerde boilerlagen (TopH/TopL/MidH/MidL/BotL), i.p.v. enkel BotH
-- [ ] **Actief onderzoek (3aug26):** de live-test van PID20 toonde bij het verlaten van REGIME opnieuw enorme PWM-schommelingen — nog te analyseren of dit dezelfde ~9-11-minuten-oscillatie is die de aanleiding was voor VROEGSTART, dan wel een nieuw effect van de VROEGSTART→REGIME-overgang zelf
+- [ ] **Actief onderzoek:** de live-tests op de installatie tonen af en toe nog aanzienlijke PWM-schommelingen tijdens REGIME zelf, los van VROEGSTART — nog te analyseren of dit dezelfde ~9-11-minuten-oscillatie is als eerder, of een ander effect
 
 ## Versiegeschiedenis (samengevat)
 
@@ -239,13 +270,16 @@ Een aantal harde lessen uit het heen-en-weer traject op de echte Photon-installa
 - **v5**: BotH-slider volgt nu ook live de gesimuleerde waarde; het overbodige dubbele Tsol-label verplaatst/samengevoegd bovenaan bij de collector; leidingen links/rechts symmetrisch getekend (pomp mee verschoven); alle sliders starten voortaan op hun laagste waarde.
 - **v6 (31jul26)**: dode tijd (transportvertraging) toegevoegd als flow-afhankelijke naijling tussen de werkelijke en de gevoelde collectortemperatuur — direct geïnspireerd door de ontdekking op de echte hardware dat vier verschillende PID-instellingen allemaal hetzelfde slingerpatroon gaven.
 - **v7 (3aug26)**: de vaste opstart-ramp vervangen door **OPWARMEN** (gradiënt-gebaseerde open-lus fase) en **VROEGSTART** toegevoegd (preventieve start op basis van de Tsol-gradiënt, met een lineaire PWM-formule en een stabiliteits-gebaseerde duur); nieuw faselabel **WACHT**; info-modals bijgewerkt met opnieuw geverifieerde cijfers voor het nieuwe doel van 2,5°C; nieuwe modal die OPWARMEN/VROEGSTART uitlegt; README volledig herschreven, systematisch en didactisch opgebouwd voor Leon.
+- **v8 (4aug26)**: VROEGSTART-PWM wordt nu **live bijgestuurd** — elke minuut herberekend uit de actuele gradiënt, i.p.v. eenmalig vastgelegd (zie "Probleem 3" hierboven). Vier nieuwe **scenario-knoppen** toegevoegd (Ochtend start zomer/winter, Zonsondergang) die de zon-intensiteit als een lineaire ramp over een vaste duur besturen, combineerbaar met de (hernoemde) wolk-knoppen. De Zon-intensiteit-slider volgt voortaan, net als BotH, altijd live de actuele waarde.
+- **v9 (4aug26)**: drie UI-verduidelijkingen. (1) Scenario- en wolk-knoppen tonen nu duidelijk hun status (pulserend gemarkeerd terwijl actief, uitgegrijsd terwijl niet beschikbaar). (2) Een korte toelichting onder de sliders maakt expliciet dat ze steeds de live meterwaarden tonen. (3) **Zon-intensiteit is vervangen door Zoninstraling in W/m²** (0-1000), realistischer dan een rechtstreekse temperatuur-schuifknop — de instraling wordt nu apart omgezet naar een evenwichtstemperatuur (zie "Het fysisch model"), wat meteen ook verklaart waarom die schuifknop nooit dezelfde waarde toont als de Tsol-uitlezing. De ochtend-scenario's zetten BotH automatisch op een realistische waarde als die nog te koud staat, zodat VROEGSTART betrouwbaar kan triggeren.
 
 ## Herkomst
 
-Gebouwd na een aantal weken heen-en-weer testen met de echte Particle Photon-installatie (zie de sketch-versiehistoriek: PID9 t/m PID20, 25 juli – 3 augustus 2026) — de regellogica hier is bewust 1-op-1 dezelfde als daar, zodat een inzicht uit de simulator ook echt vertaalbaar is naar de sketch.
+Gebouwd na een aantal weken heen-en-weer testen met de echte Particle Photon-installatie (zie de sketch-versiehistoriek: PID9 t/m PID21, 25 juli – 4 augustus 2026) — de regellogica hier is bewust 1-op-1 dezelfde als daar, zodat een inzicht uit de simulator ook echt vertaalbaar is naar de sketch.
 
 Belangrijkste mijlpalen sinds de eerste versie:
 - **31jul26 (PID16/17):** derivative-kick-bug gevonden (eerst in de simulator, dan bevestigd in de echte sketch) en gecorrigeerd; dode tijd toegevoegd aan het model
 - **1aug26 (PID18):** de vaste opstart-ramp vervangen door OPWARMEN, een gradiënt-gebaseerde open-lus fase die zelf beoordeelt wanneer het circuit "opgewarmd" is; trickle-start bij dT>0 i.p.v. te wachten op een hogere drempel
 - **2aug26 (PID19):** VROEGSTART toegevoegd — een preventieve starttrigger op basis van de rauwe Tsol-gradiënt, nog vóór dT zelf positief wordt, met een vaste PWM en duur als eerste, eenvoudige versie
 - **3aug26 (PID20):** VROEGSTART verfijnd met een lineaire PWM-formule (naar de trigger-gradiënt) en een stabiliteits-gebaseerde duur (i.p.v. een vaste timer) — dezelfde aanpak als OPWARMEN al gebruikte
+- **4aug26 (PID21):** VROEGSTART-PWM wordt LIVE bijgestuurd — elke minuut herberekend uit de actuele gradiënt, i.p.v. eenmalig vastgelegd bij de start. Op een aanhoudend snel stijgende ochtend liep dT anders ongebreideld op (tot >75°C boven doel geobserveerd) vóór de stabiliteits-uitgang kon ingrijpen. Zelf geverifieerd in simulatie: dT-piek daalde van >75°C naar ~8°C, REGIME-instappiek van PWM 195-224 naar PWM ~110.

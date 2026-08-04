@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Zonnecollector Digital Twin — PID20-simulator</title>
+<title>Zonnecollector Digital Twin — PID21-simulator</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   :root{
@@ -221,6 +221,19 @@
   button:focus-visible, input:focus-visible{ outline:2px solid var(--hot); outline-offset:2px; }
   button.primary{ border-color:var(--hot); color:var(--hot); }
   button.toggle-on{ border-color:var(--flow); color:var(--flow); background:rgba(143,224,138,0.10); }
+  button:disabled{ opacity:0.35; cursor:not-allowed; }
+  button:disabled:hover{ border-color:var(--line); }
+  button.scenario-btn.running{
+    border-color:var(--warn); color:var(--warn);
+    background:rgba(232,201,92,0.12);
+    opacity:1;
+    animation:pulseRunning 1.4s ease-in-out infinite;
+  }
+  button.cloud-running{
+    border-color:var(--cool); color:var(--cool);
+    background:rgba(79,176,217,0.12);
+  }
+  @keyframes pulseRunning{ 0%,100%{ box-shadow:0 0 0 rgba(232,201,92,0); } 50%{ box-shadow:0 0 10px rgba(232,201,92,0.5); } }
 
   .readouts{
     display:grid;
@@ -296,7 +309,7 @@
   <div class="header-inner">
     <div class="header-text">
       <h1>Zonnecollector Digital Twin<span class="dot">.</span></h1>
-      <p>Vereenvoudigd thermisch model van de ECO-boiler zonnelus, aangestuurd door dezelfde regellogica als de echte Photon-sketch (PID20, 3aug26) — inclusief dode tijd, de gradiënt-gebaseerde OPWARMEN-fase en de nieuwe VROEGSTART-fase.</p>
+      <p>Vereenvoudigd thermisch model van de ECO-boiler zonnelus, aangestuurd door dezelfde regellogica als de echte Photon-sketch (PID21, 4aug26) — inclusief dode tijd, OPWARMEN, en VROEGSTART met live PWM-bijsturing. Test het zelf met de scenario-knoppen hiernaast.</p>
     </div>
     <div class="schematic">
       <svg viewBox="0 0 460 200" xmlns="http://www.w3.org/2000/svg">
@@ -360,13 +373,14 @@
   <div class="panel" id="controls">
     <h2>Omgeving</h2>
     <div class="field">
-      <label>Zon-intensiteit <span class="val" id="sunVal">70°C</span></label>
-      <input type="range" id="sun" min="0" max="100" step="1" value="0">
+      <label>Zoninstraling <span class="val" id="sunVal">700 W/m²</span></label>
+      <input type="range" id="sun" min="0" max="1000" step="10" value="0">
     </div>
     <div class="field">
       <label>BotH — boilertemperatuur nu <span class="val" id="bothVal">45°C</span></label>
       <input type="range" id="both" min="10" max="80" step="1" value="10">
     </div>
+    <p style="font-size:11.5px;color:var(--text-muted);margin:-8px 0 16px;">Deze twee schuifknoppen tonen altijd de actuele, live waarde uit de meters rechts — sleep je er zelf aan, dan neem je de controle terug. <strong>Let op:</strong> zoninstraling (W/m²) ≠ Tsol (°C) — de instraling is wat er ingebracht wordt, Tsol is de temperatuur die daaruit resulteert (met vertraging).</p>
 
     <h2 style="margin-top:22px;">PID-parameters</h2>
     <div class="field">
@@ -405,15 +419,25 @@
       </label>
     </div>
 
+    <h2 style="margin-top:22px;">Scenario's</h2>
+    <div class="btnrow">
+      <button class="scenario-btn" data-scenario="zomerochtend">🌅 Ochtend start (zomer)</button>
+      <button class="scenario-btn" data-scenario="winterochtend">🌄 Ochtend start (winter)</button>
+      <button class="scenario-btn" data-scenario="zonsondergang">🌇 Zonsondergang</button>
+    </div>
+    <div class="btnrow">
+      <button id="cloudBtn">☁ Wolk passeert</button>
+      <button id="cloudToggleBtn">🌤 Wisselende wolken (sinus): UIT</button>
+    </div>
+    <p style="font-size:11.5px;color:var(--text-muted);margin:8px 0 0;">Scenario's en wolken zijn te combineren: een wolk kan bv. tijdens een zomerse ochtendstart passeren.</p>
+
     <h2 style="margin-top:22px;">Simulatie</h2>
     <div class="field">
       <label>Snelheid <span class="val" id="speedVal">8× (min/sec)</span></label>
       <input type="range" id="speed" min="1" max="24" step="1" value="1">
     </div>
     <div class="btnrow">
-      <button class="primary" id="cloudBtn">☁ Wolk voorbij</button>
-      <button id="cloudToggleBtn">🌤 Wisselende bewolking: UIT</button>
-      <button id="resetBtn">↺ Reset</button>
+      <button class="primary" id="resetBtn">↺ Reset</button>
       <button id="pauseBtn">⏸ Pauze</button>
     </div>
   </div>
@@ -455,7 +479,7 @@
 
 <script>
 // =====================================================================
-// PARAMETERS DIE 1-OP-1 UIT DE ECHTE PHOTON-SKETCH KOMEN (PID20, 3aug26)
+// PARAMETERS DIE 1-OP-1 UIT DE ECHTE PHOTON-SKETCH KOMEN (PID21, 4aug26)
 // =====================================================================
 const DT_TARGET = 2.5;
 const DT_TRICKLE_START = 0.0;   // 1aug26: vroege trickle-start i.p.v. te wachten op DT_START
@@ -498,11 +522,20 @@ const GRADIENT_CONFIRM_MINUTES = 3;
 // =====================================================================
 // VEREENVOUDIGD FYSISCH MODEL (educatief, niet kwantitatief exact)
 // =====================================================================
-const HEAT_GAIN = 0.12;      // hoe snel de collector richting de zon-intensiteit trekt, per minuut
+const HEAT_GAIN = 0.12;      // hoe snel de collector richting z'n evenwichtstemperatuur trekt, per minuut
 const FLOW_COOL = 0.0045;    // hoeveel warmte de doorstroming onttrekt, per PWM-eenheid per minuut
 const BOIL_TRANSFER = 0.35;  // fractie van de onttrokken warmte die de (kleinere) boilerlaag opwarmt
 const AMBIENT_LOSS = 0.002;  // trage afkoeling van de boiler naar omgeving/verbruik
 const AMBIENT_TEMP = 18;
+const COLLECTOR_GAIN = 0.08; // °C evenwicht boven omgevingstemperatuur, per W/m² instraling (4aug26)
+
+// Instraling (W/m², wat de slider en de scenario's aansturen) naar de
+// evenwichtstemperatuur waar de collector geleidelijk naartoe trekt. Bij
+// 0 W/m² is dat gewoon de omgevingstemperatuur; bij volle zon (1000 W/m²)
+// een realistische stagnatietemperatuur voor een eenvoudige collector.
+function irradianceToEqTemp(irradianceWm2){
+  return AMBIENT_TEMP + irradianceWm2 * COLLECTOR_GAIN;
+}
 
 // "Hete-plug"-effect: het stilstaande leidingsegment vlak bij de sensor warmt
 // traag mee met de collector zolang de pomp stilstaat, en geeft een korte,
@@ -520,9 +553,26 @@ let pumpStartMinute = 0, floorMinutes = 0;
 let simMinutes = 0;
 let stagnantMinutes = 999;
 let spikeValue = 0, spikeRemaining = 0;
-let cloudUntil = -1, cloudSaved = null;
+let cloudUntil = -1;
 let naturalClouds = false;
 let cloudPhase = 0, cloudNoise = 0;
+
+// Zon-scenario's (4aug26): sunBaseValue is de "schone-lucht"-basiswaarde,
+// ofwel handmatig ingesteld via de slider, ofwel aangestuurd door een lopend
+// scenario (lineaire ramp). Wolk-effecten (naturalClouds/cloudUntil) werken
+// hier altijd bovenop, ongeacht de bron van de basiswaarde.
+const SUN_SCENARIOS = {
+  zomerochtend:  { from: 100, to: 950, duration: 22 },
+  winterochtend: { from: 50,  to: 500, duration: 100 },
+  zonsondergang: { from: null, to: 30, duration: 70 },  // from=null -> vertrekt van de huidige waarde
+};
+let sunBaseValue = 700;
+let sunDragging = false;
+let sunScenario = null;
+let sunScenarioStartMinute = 0;
+let sunScenarioStartValue = 0;
+let sunScenarioEndValue = 0;
+let sunScenarioDuration = 0;
 let paused = false;
 let accMin = 0, lastFrameTs = null;
 
@@ -532,6 +582,7 @@ let warmupActive = false, warmupPwmTarget = 0, prevDTForGradient = 0, warmupStab
 // VROEGSTART-state
 let earlyStartActive = false, earlyStartTriggered = false, earlyStartTriggerGradient = 0;
 let earlyStartBeginMinute = 0, earlyStartPwmTarget = 0, prevDTForEarlyStart = 0, earlyStartStableMinutes = 0;
+let earlyStartPrevSensorTC = 0, earlyStartCurrentGradient = 0;
 let prevTsunForGradient = 0, tsunGradientTrackInit = false, tsunGradientStableMinutes = 0;
 
 const sunEl = document.getElementById('sun');
@@ -543,7 +594,7 @@ const pwmMinEl = document.getElementById('pwmmin');
 const speedEl = document.getElementById('speed');
 
 function syncLabels(){
-  document.getElementById('sunVal').textContent = sunEl.value + '°C';
+  document.getElementById('sunVal').textContent = sunEl.value + ' W/m²';
   document.getElementById('bothVal').textContent = bothEl.value + '°C';
   document.getElementById('kpVal').textContent = (+kpEl.value).toFixed(1);
   document.getElementById('kiVal').textContent = (+kiEl.value).toFixed(2);
@@ -551,7 +602,13 @@ function syncLabels(){
   document.getElementById('pwmminVal').textContent = pwmMinEl.value;
   document.getElementById('speedVal').textContent = speedEl.value + '× (min/sec)';
 }
-[sunEl,kpEl,kiEl,kdEl,pwmMinEl,speedEl].forEach(e=>e.addEventListener('input', syncLabels));
+[kpEl,kiEl,kdEl,pwmMinEl,speedEl].forEach(e=>e.addEventListener('input', syncLabels));
+sunEl.addEventListener('input', ()=>{ sunBaseValue = +sunEl.value; sunScenario = null; syncLabels(); });
+let sunDragStart = ()=>{ sunDragging = true; sunScenario = null; };
+let sunDragEnd = ()=>{ sunDragging = false; };
+sunEl.addEventListener('mousedown', sunDragStart);
+sunEl.addEventListener('touchstart', sunDragStart);
+['mouseup','touchend','blur'].forEach(evt=>{ sunEl.addEventListener(evt, sunDragEnd); });
 bothEl.addEventListener('input', ()=>{ TB = +bothEl.value; syncLabels(); });
 let bothDragging = false;
 bothEl.addEventListener('mousedown', ()=>{ bothDragging = true; });
@@ -567,17 +624,53 @@ function setPaused(val){
   document.getElementById('pauseBtn').textContent = paused ? '▶ Verder' : '⏸ Pauze';
 }
 document.getElementById('pauseBtn').addEventListener('click', ()=> setPaused(!paused));
-document.getElementById('cloudBtn').addEventListener('click', ()=>{
+
+// Zon-scenario's (4aug26): eenmalige, lineaire ramps van de basis-
+// zon-intensiteit over een vaste gesimuleerde duur. Combineerbaar met de
+// wolk-knoppen hieronder, want die werken altijd bovenop de basiswaarde.
+document.querySelectorAll('.scenario-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const key = btn.dataset.scenario;
+    const def = SUN_SCENARIOS[key];
+    sunScenario = key;
+    sunScenarioStartMinute = simMinutes;
+    sunScenarioStartValue = (def.from === null) ? sunBaseValue : def.from;
+    sunScenarioEndValue = def.to;
+    sunScenarioDuration = def.duration;
+    // Een "ochtendstart" is enkel realistisch als de boiler nog restwarmte
+    // van de vorige dag heeft. Staat BotH nog op een koude-start-waarde
+    // (net als Tsol), dan zou dT al op de eerste minuut over de trickle-
+    // drempel springen, en zou VROEGSTART nooit de kans krijgen om te
+    // triggeren. Zet BotH dan automatisch op een realistische waarde.
+    if ((key === 'zomerochtend' || key === 'winterochtend') && TB < 35) {
+      TB = 45;
+      bothEl.value = 45;
+      document.getElementById('bothVal').textContent = '45°C';
+    }
+    resetScenarioButtons();
+    btn.classList.add('running');       // duidelijke, pulserende markering
+    btn.textContent = btn.textContent + ' (bezig…)';
+  });
+});
+
+function resetScenarioButtons(){
+  document.querySelectorAll('.scenario-btn').forEach(b=>{
+    b.disabled = (sunScenario !== null) && (b.dataset.scenario !== sunScenario);
+    b.classList.remove('running');
+    b.textContent = b.textContent.replace(/ \(bezig…\)$/, '');
+  });
+}
+
+document.getElementById('cloudBtn').addEventListener('click', function(){
   if (cloudUntil > 0) return; // al bezig
-  cloudSaved = +sunEl.value;
-  sunEl.value = Math.max(5, Math.round(cloudSaved*0.25));
-  syncLabels();
   cloudUntil = simMinutes + 5;
+  this.classList.add('cloud-running');
+  this.disabled = true;
 });
 document.getElementById('cloudToggleBtn').addEventListener('click', (e)=>{
   naturalClouds = !naturalClouds;
   cloudPhase = 0; cloudNoise = 0;
-  e.target.textContent = naturalClouds ? '🌤 Wisselende bewolking: AAN' : '🌤 Wisselende bewolking: UIT';
+  e.target.textContent = naturalClouds ? '🌤 Wisselende wolken (sinus): AAN' : '🌤 Wisselende wolken (sinus): UIT';
   e.target.classList.toggle('toggle-on', naturalClouds);
 });
 
@@ -590,11 +683,16 @@ function resetSim(){
   pumpStartMinute = 0; floorMinutes = 0;
   simMinutes = 0; stagnantMinutes = 999;
   spikeValue = 0; spikeRemaining = 0;
-  cloudUntil = -1; cloudSaved = null;
+  cloudUntil = -1;
   cloudPhase = 0; cloudNoise = 0;
+  sunBaseValue = +sunEl.value; sunDragging = false; sunScenario = null;
+  resetScenarioButtons();
+  const cb = document.getElementById('cloudBtn');
+  cb.classList.remove('cloud-running'); cb.disabled = false;
   warmupActive = false; warmupPwmTarget = 0; prevDTForGradient = 0; warmupStableMinutes = 0;
   earlyStartActive = false; earlyStartTriggered = false; earlyStartTriggerGradient = 0;
   earlyStartBeginMinute = 0; earlyStartPwmTarget = 0; prevDTForEarlyStart = 0; earlyStartStableMinutes = 0;
+  earlyStartPrevSensorTC = 0; earlyStartCurrentGradient = 0;
   prevTsunForGradient = 0; tsunGradientTrackInit = false; tsunGradientStableMinutes = 0;
   tempSeries = {tc:[], tb:[]}; pwmSeries = [];
   logLines = [];
@@ -645,7 +743,7 @@ const pidExplanations = {
     body: `
       <p>Vóór REGIME (de PID) het overneemt, doorloopt de pomp altijd eerst een open-lus opstartfase — zonder Kp/Ki/Kd, gewoon een vaste of geleidelijk klimmende PWM. Er zijn twee manieren waarop zo'n opstart kan beginnen.</p>
       <p><span class="tag" style="color:var(--warn)">OPWARMEN</span> is de gewone weg: zodra dT_gefilterd boven 0°C komt, klimt de PWM elke minuut met 4 tot 15 stapjes (hoe steiler dT nog stijgt, hoe grotere stap), tot dT 3 minuten na elkaar nauwelijks nog verandert — dan pas is het circuit "opgewarmd" en neemt REGIME over.</p>
-      <p><span class="tag" style="color:var(--hot)">VROEGSTART</span> is de snelle weg: terwijl de pomp nog stilstaat, wordt ook gekeken hoe snel de collector zelf al opwarmt (los van dT). Klimt die minuten na elkaar snel genoeg, dan start de pomp preventief, nog vóór dT positief is — met een PWM die meeschaalt met hoe steil die stijging is. Dit dient meteen als een natuurlijke meting van de dode tijd in het systeem.</p>
+      <p><span class="tag" style="color:var(--hot)">VROEGSTART</span> is de snelle weg: terwijl de pomp nog stilstaat, wordt ook gekeken hoe snel de collector zelf al opwarmt (los van dT). Klimt die minuten na elkaar snel genoeg, dan start de pomp preventief, nog vóór dT positief is — met een PWM die meeschaalt met hoe steil die stijging is. Sinds 4aug26 wordt die PWM elke minuut opnieuw herberekend uit de actuele gradiënt, i.p.v. vast te liggen op het triggermoment: bij een aanhoudend snel stijgende zon bleek een vaste PWM de collector niet te kunnen bijbenen, waardoor dT flink kon wegzeilen vóór REGIME overnam. Live bijsturing houdt dT vanzelf veel dichter bij doel. Dit dient meteen als een natuurlijke meting van de dode tijd in het systeem.</p>
       <p class="down">Beide fasen laten <span class="tag">pidPrevError</span> gewoon meelopen (de "D-kick-fix"), zodat de D-term bij de eerste REGIME-stap nadien niet vergelijkt met een verouderde fout.</p>
     `
   }
@@ -699,26 +797,56 @@ let lastLoggedPhase = null;
 function step(){
   simMinutes += 1;
 
-  if (cloudUntil > 0 && simMinutes >= cloudUntil) {
-    sunEl.value = cloudSaved;
-    syncLabels();
-    cloudUntil = -1;
+  // Basiswaarde: ofwel een lopend scenario (lineaire ramp), ofwel de
+  // handmatige sliderwaarde (4aug26)
+  if (sunScenario) {
+    const elapsed = simMinutes - sunScenarioStartMinute;
+    const frac = Math.min(elapsed / sunScenarioDuration, 1);
+    sunBaseValue = sunScenarioStartValue + frac * (sunScenarioEndValue - sunScenarioStartValue);
+    if (frac >= 1) {
+      sunScenario = null;   // scenario klaar - basiswaarde blijft op de eindwaarde staan
+      resetScenarioButtons();
+    }
   }
 
-  const baseSun = +sunEl.value;
-  let sunTarget = baseSun;
+  if (cloudUntil > 0 && simMinutes >= cloudUntil) {
+    cloudUntil = -1;
+    const cb = document.getElementById('cloudBtn');
+    cb.classList.remove('cloud-running'); cb.disabled = false;
+  }
+
+  // sunIrradiance = de effectieve instraling (W/m²) dít moment, na eventuele
+  // wolk-modulatie - wordt verderop omgezet naar een evenwichtstemperatuur.
+  let sunIrradiance = sunBaseValue;
   if (naturalClouds) {
     // Trage golving (grotere, langzaam voorbijtrekkende wolkenpartijen) +
     // een kleine, willekeurige "gril" (kortere, onregelmatige schommelingen),
-    // samen begrensd tot [0, 100]. De schuifknop zelf blijft staan op de
-    // basiswaarde die je instelde - enkel de effectieve zonkracht schommelt
-    // eromheen, zoals bij echt, wisselvallig weer.
+    // beide als FRACTIE van de actuele instraling - zo blijft het effect
+    // even sterk ongeacht of de basis nu 100 of 900 W/m² is. Werkt altijd
+    // bovenop de actuele basiswaarde, of die nu handmatig of
+    // scenario-gestuurd is.
     cloudPhase += 0.15;
-    const wave = Math.sin(cloudPhase) * 0.22 * baseSun;
-    cloudNoise += (Math.random() - 0.5) * 5;
-    cloudNoise = Math.max(-15, Math.min(15, cloudNoise));
-    sunTarget = Math.max(0, Math.min(100, baseSun + wave + cloudNoise));
+    const waveFrac = Math.sin(cloudPhase) * 0.22;
+    cloudNoise += (Math.random() - 0.5) * 0.05;
+    cloudNoise = Math.max(-0.15, Math.min(0.15, cloudNoise));
+    sunIrradiance = Math.max(0, Math.min(1000, sunBaseValue * (1 + waveFrac + cloudNoise)));
   }
+  if (cloudUntil > 0) {
+    // Eénmalige wolk-passage: tijdelijke dip t.o.v. de actuele instraling
+    // (dus ook combineerbaar met wisselende wolken of een lopend scenario)
+    sunIrradiance = Math.max(0, sunIrradiance * 0.25);
+  }
+
+  // Instraling-slider en -label volgen live de actuele, effectieve waarde
+  // (na scenario/wolken), tenzij de gebruiker hem net vasthoudt
+  if (!sunDragging) {
+    sunEl.value = Math.round(sunIrradiance);
+    document.getElementById('sunVal').textContent = Math.round(sunIrradiance) + ' W/m²';
+  }
+
+  // De fysica zelf blijft met een evenwichts-temperatuur rekenen - dat is
+  // waar de collector geleidelijk naartoe trekt (zie irradianceToEqTemp).
+  const sunTarget = irradianceToEqTemp(sunIrradiance);
   const PWM_MIN = +pwmMinEl.value;
 
   // --- Fysica (gebruikt de PWM van de vórige cyclus, net als de echte telemetrie-lag) ---
@@ -834,12 +962,15 @@ function step(){
 
       if (earlyStartTriggered) {
         // Gestart via de Tsol-gradiënt, nog vóór dT positief werd - VROEGSTART
-        // i.p.v. de normale OPWARMEN-ramp.
+        // i.p.v. de normale OPWARMEN-ramp. PWM wordt vanaf 4aug26 LIVE
+        // bijgestuurd (zie verderop), i.p.v. hier vastgelegd te blijven.
         earlyStartActive = true;
         earlyStartBeginMinute = simMinutes;
         warmupActive = false;
         prevDTForEarlyStart = dTFiltered;
         earlyStartStableMinutes = 0;
+        earlyStartPrevSensorTC = sensorTC;             // baseline voor de live-gradiënt
+        earlyStartCurrentGradient = earlyStartTriggerGradient;
         let frac = (earlyStartTriggerGradient - EARLY_START_GRADIENT_MIN) /
                    (EARLY_START_GRADIENT_REF - EARLY_START_GRADIENT_MIN);
         frac = Math.min(Math.max(frac, 0), 1);
@@ -855,9 +986,22 @@ function step(){
     }
     relayState = true;
 
-    // VROEGSTART: PWM ligt al vast sinds de start; enkel de duur wordt hier
-    // nog bepaald, door te wachten tot dT_gefilterd zelf stabiliseert.
+    // VROEGSTART (2aug26 basis, 3aug26: lineaire formule, 4aug26: LIVE
+    // bijsturing): de PWM ligt niet langer vast sinds de start, maar wordt
+    // hier elke minuut herberekend uit de actuele Tsol-gradiënt. Reden: bij
+    // een aanhoudend snel stijgende zon bleef een vaste PWM de collector niet
+    // bijbenen, waardoor dT ongebreideld kon oplopen vóór de stabiliteits-
+    // uitgang of het vangnet kon ingrijpen - met een fikse PWM-piek bij de
+    // REGIME-instap tot gevolg. Met live bijsturing schaalt de PWM voortaan
+    // mee zodra de gradiënt hoog blijft, wat dT vanzelf begrensd houdt.
     if (earlyStartActive && !justStarted) {
+      earlyStartCurrentGradient = sensorTC - earlyStartPrevSensorTC;
+      earlyStartPrevSensorTC = sensorTC;
+      let liveFrac = (earlyStartCurrentGradient - EARLY_START_GRADIENT_MIN) /
+                     (EARLY_START_GRADIENT_REF - EARLY_START_GRADIENT_MIN);
+      liveFrac = Math.min(Math.max(liveFrac, 0), 1);
+      earlyStartPwmTarget = EARLY_START_PWM_MIN + liveFrac * (EARLY_START_PWM_MAX - EARLY_START_PWM_MIN);
+
       const esGradient = dTFiltered - prevDTForEarlyStart;
       prevDTForEarlyStart = dTFiltered;
       if (Math.abs(esGradient) < EARLY_START_STABLE_THRESHOLD) {
@@ -904,7 +1048,7 @@ function step(){
       // D-kick-fix: pidPrevError blijft ook tijdens VROEGSTART meelopen
       pidPrevError = dTFiltered - DT_TARGET;
       phase = 'VROEGSTART';
-      text = `gradiënt=${earlyStartTriggerGradient.toFixed(1)}°C/min → PWM=${Math.round(earlyStartPwmTarget)}, stabiel ${earlyStartStableMinutes}/${EARLY_START_STABLE_MINUTES_NEEDED} min (max ${EARLY_START_MAX_MINUTES} min).`;
+      text = `live gradiënt=${earlyStartCurrentGradient.toFixed(1)}°C/min → PWM=${Math.round(earlyStartPwmTarget)}, stabiel ${earlyStartStableMinutes}/${EARLY_START_STABLE_MINUTES_NEEDED} min (max ${EARLY_START_MAX_MINUTES} min).`;
     } else if (warmupActive) {
       pwmDoel = warmupPwmTarget;
       // D-kick-fix (31jul26): pidPrevError blijft ook tijdens OPWARMEN mee

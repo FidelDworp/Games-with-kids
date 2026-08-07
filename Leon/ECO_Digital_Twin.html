@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Zonnecollector Digital Twin — PID21-simulator</title>
+<title>Zonnecollector Digital Twin — PID22-simulator</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   :root{
@@ -309,7 +309,7 @@
   <div class="header-inner">
     <div class="header-text">
       <h1>Zonnecollector Digital Twin<span class="dot">.</span></h1>
-      <p>Vereenvoudigd thermisch model van de ECO-boiler zonnelus, aangestuurd door dezelfde regellogica als de echte Photon-sketch (PID21, 4aug26) — inclusief dode tijd, OPWARMEN, en VROEGSTART met live PWM-bijsturing. Test het zelf met de scenario-knoppen hiernaast.</p>
+      <p>Vereenvoudigd thermisch model van de ECO-boiler zonnelus, aangestuurd door dezelfde regellogica als de echte Photon-sketch (PID22, 6aug26) — inclusief dode tijd, OPWARMEN, VROEGSTART met een settle-venster, en het nieuwe dag-evenwicht. Test het zelf met de scenario-knoppen hiernaast.</p>
     </div>
     <div class="schematic">
       <svg viewBox="0 0 460 200" xmlns="http://www.w3.org/2000/svg">
@@ -479,7 +479,7 @@
 
 <script>
 // =====================================================================
-// PARAMETERS DIE 1-OP-1 UIT DE ECHTE PHOTON-SKETCH KOMEN (PID21, 4aug26)
+// PARAMETERS DIE 1-OP-1 UIT DE ECHTE PHOTON-SKETCH KOMEN (PID22, 6aug26)
 // =====================================================================
 const DT_TARGET = 2.5;
 const DT_TRICKLE_START = 0.0;   // 1aug26: vroege trickle-start i.p.v. te wachten op DT_START
@@ -504,12 +504,16 @@ const WARMUP_STABLE_THRESHOLD = 0.3;
 const WARMUP_STABLE_MINUTES_NEEDED = 3;
 const WARMUP_MAX_MINUTES = 10.0;
 
-// VROEGSTART (2aug26 basis, 3aug26: lineaire PWM-formule + stabiliteits-duur)
-// Terwijl de pomp stilstaat, volgen we de rauwe Tsol-gradiënt (niet dT) - blijft
-// die een paar minuten na elkaar boven de ondergrens, dan start de pomp
-// preventief op een PWM die lineair meeschaalt met hoe steil de gradiënt op
-// dat moment is (geen PID). De duur wacht tot dT_gefilterd zelf stabiliseert,
-// met een vast vangnet - dit dient meteen als een natuurlijke dode-tijd-meting.
+// VROEGSTART (2aug26 basis, 3aug26: lineaire PWM-formule, 6aug26 v2: settle-
+// venster + dag-evenwicht). Terwijl de pomp stilstaat, volgen we de rauwe
+// Tsol-gradiënt (niet dT) - blijft die een paar minuten na elkaar boven de
+// ondergrens, dan start de pomp preventief. De eerste 2 minuten na elke
+// herstart ("settle-venster") wordt nog niets herberekend - de hete-plug-
+// piek (zie spikeMagnitudeFor) is dan bekend voorbij. Is er al een
+// dag-evenwicht gekend (uit eerdere, stabiele REGIME-periodes vandaag), dan
+// start de pomp voorzichtig op de bodem en klimt ze daar geleidelijk naartoe;
+// zonder gekend evenwicht (de allereerste start van de dag) valt het terug
+// op de live-gradiënt-formule.
 const EARLY_START_GRADIENT_MIN = 0.5;
 const EARLY_START_GRADIENT_REF = 3.0;
 const EARLY_START_PWM_MIN = 30;
@@ -518,6 +522,17 @@ const EARLY_START_STABLE_THRESHOLD = 0.3;
 const EARLY_START_STABLE_MINUTES_NEEDED = 3;
 const EARLY_START_MAX_MINUTES = 40.0;
 const GRADIENT_CONFIRM_MINUTES = 3;
+const EARLY_START_SETTLE_MINUTES = 2.0;   // hete-plug is dan bekend voorbij
+const EARLY_START_CLIMB_STEP = 10;        // hoeveel PWM/min klimmen naar het evenwicht toe
+
+// Dag-evenwichts-PWM (6aug26): een traag bijgewerkte schatting van "de PWM
+// die vandaag werkt", opgebouwd tijdens stabiele REGIME-periodes (EMA,
+// vergelijkbaar met hoe dT_gefilterd zelf een EMA is - zie verderop).
+const EQUILIBRIUM_EMA_ALPHA = 0.05;
+const EQUILIBRIUM_DT_BAND = 1.0;
+const EQUILIBRIUM_CREEP_DT_HIGH = 3.0;
+const EQUILIBRIUM_CREEP_PWM_STEP = 5;
+const EQUILIBRIUM_RESET_STAGNANT_MIN = 240.0;
 
 // =====================================================================
 // VEREENVOUDIGD FYSISCH MODEL (educatief, niet kwantitatief exact)
@@ -582,8 +597,11 @@ let warmupActive = false, warmupPwmTarget = 0, prevDTForGradient = 0, warmupStab
 // VROEGSTART-state
 let earlyStartActive = false, earlyStartTriggered = false, earlyStartTriggerGradient = 0;
 let earlyStartBeginMinute = 0, earlyStartPwmTarget = 0, prevDTForEarlyStart = 0, earlyStartStableMinutes = 0;
-let earlyStartPrevSensorTC = 0, earlyStartCurrentGradient = 0;
+let earlyStartPrevSensorTC = 0, earlyStartCurrentGradient = 0, earlyStartUsingEquilibrium = false;
 let prevTsunForGradient = 0, tsunGradientTrackInit = false, tsunGradientStableMinutes = 0;
+
+// Dag-evenwichts-PWM-state
+let equilibriumPwm = 0, equilibriumKnown = false, pumpStopMinute = 0;
 
 const sunEl = document.getElementById('sun');
 const bothEl = document.getElementById('both');
@@ -692,8 +710,9 @@ function resetSim(){
   warmupActive = false; warmupPwmTarget = 0; prevDTForGradient = 0; warmupStableMinutes = 0;
   earlyStartActive = false; earlyStartTriggered = false; earlyStartTriggerGradient = 0;
   earlyStartBeginMinute = 0; earlyStartPwmTarget = 0; prevDTForEarlyStart = 0; earlyStartStableMinutes = 0;
-  earlyStartPrevSensorTC = 0; earlyStartCurrentGradient = 0;
+  earlyStartPrevSensorTC = 0; earlyStartCurrentGradient = 0; earlyStartUsingEquilibrium = false;
   prevTsunForGradient = 0; tsunGradientTrackInit = false; tsunGradientStableMinutes = 0;
+  equilibriumPwm = 0; equilibriumKnown = false; pumpStopMinute = 0;
   tempSeries = {tc:[], tb:[]}; pwmSeries = [];
   logLines = [];
   logMsg('STOP', 'Simulatie gereset.');
@@ -743,7 +762,8 @@ const pidExplanations = {
     body: `
       <p>Vóór REGIME (de PID) het overneemt, doorloopt de pomp altijd eerst een open-lus opstartfase — zonder Kp/Ki/Kd, gewoon een vaste of geleidelijk klimmende PWM. Er zijn twee manieren waarop zo'n opstart kan beginnen.</p>
       <p><span class="tag" style="color:var(--warn)">OPWARMEN</span> is de gewone weg: zodra dT_gefilterd boven 0°C komt, klimt de PWM elke minuut met 4 tot 15 stapjes (hoe steiler dT nog stijgt, hoe grotere stap), tot dT 3 minuten na elkaar nauwelijks nog verandert — dan pas is het circuit "opgewarmd" en neemt REGIME over.</p>
-      <p><span class="tag" style="color:var(--hot)">VROEGSTART</span> is de snelle weg: terwijl de pomp nog stilstaat, wordt ook gekeken hoe snel de collector zelf al opwarmt (los van dT). Klimt die minuten na elkaar snel genoeg, dan start de pomp preventief, nog vóór dT positief is — met een PWM die meeschaalt met hoe steil die stijging is. Sinds 4aug26 wordt die PWM elke minuut opnieuw herberekend uit de actuele gradiënt, i.p.v. vast te liggen op het triggermoment: bij een aanhoudend snel stijgende zon bleek een vaste PWM de collector niet te kunnen bijbenen, waardoor dT flink kon wegzeilen vóór REGIME overnam. Live bijsturing houdt dT vanzelf veel dichter bij doel. Dit dient meteen als een natuurlijke meting van de dode tijd in het systeem.</p>
+      <p><span class="tag" style="color:var(--hot)">VROEGSTART</span> is de snelle weg: terwijl de pomp nog stilstaat, wordt ook gekeken hoe snel de collector zelf al opwarmt (los van dT). Klimt die minuten na elkaar snel genoeg, dan start de pomp preventief, nog vóór dT positief is. De eerste 2 minuten na zo'n start ("settle-venster") verandert de PWM bewust nog niet — de hete-plug-piek is dan bekend voorbij. Is er al een <strong>dag-evenwicht</strong> gekend (zie hieronder), dan klimt de PWM daarna rustig daarnaartoe; anders (de allereerste start van de dag) schaalt ze mee met hoe steil de gradiënt is.</p>
+      <p><span class="tag" style="color:var(--flow)">Dag-evenwicht</span>: sinds 6aug26 onthoudt de sketch een traag bijgewerkt gemiddelde van de PWM die tijdens stabiele REGIME-periodes vandaag al bewees te werken. Bij een volgende VROEGSTART hoeft de pomp dan niet meer blind te gokken op een gradiënt die toch net na een stilstand vervuild is — ze start voorzichtig op de bodem en klimt geleidelijk naar dat bekende evenwicht toe. Zodra dT niet meer positief is, gaat de PWM meteen terug naar de bodem, en telt dat mee voor hetzelfde STOP-vangnet als REGIME.</p>
       <p class="down">Beide fasen laten <span class="tag">pidPrevError</span> gewoon meelopen (de "D-kick-fix"), zodat de D-term bij de eerste REGIME-stap nadien niet vergelijkt met een verouderde fout.</p>
     `
   }
@@ -884,7 +904,20 @@ function step(){
   // --- STOP als laatste redmiddel, of trickle-start + VROEGSTART-trigger ---
   let shouldBeOn, atFloor = false;
   if (relayState) {
-    atFloor = (!warmupActive) && (!earlyStartActive) && (pwmValue <= PWM_MIN + 2);
+    // VROEGSTART wordt hier bewust NIET meer uitgesloten (6aug26 v2): een
+    // gezonde VROEGSTART duwt dT_gefilterd vanzelf snel boven 0°C, dus haalt
+    // die de 5-minuten-patience nooit; een VROEGSTART die dat niet lukt (bv.
+    // een te hoog dag-evenwicht tegen een intussen te zwakke zon) wordt zo,
+    // net als een slechte REGIME-periode, binnen dezelfde 5 minuten gestopt.
+    atFloor = (!warmupActive) && (pwmValue <= PWM_MIN + 2);
+
+    // Dag-evenwichts-PWM bijleren (6aug26): enkel tijdens een echt stabiele
+    // REGIME. Traag EMA (zelfde principe als dT_gefilterd hierboven).
+    if (!warmupActive && !earlyStartActive && !atFloor && Math.abs(dTFiltered - DT_TARGET) < EQUILIBRIUM_DT_BAND) {
+      if (!equilibriumKnown) { equilibriumPwm = pwmValue; equilibriumKnown = true; }
+      else equilibriumPwm += EQUILIBRIUM_EMA_ALPHA * (pwmValue - equilibriumPwm);
+    }
+
     const tooLow = dTFiltered <= DT_HARD_STOP;
     if (atFloor && tooLow) floorMinutes += 1; else floorMinutes = 0;
     shouldBeOn = floorMinutes < STOP_PATIENCE_MIN;
@@ -935,6 +968,12 @@ function step(){
 
   if (!shouldBeOn) {
     const wasOn = relayState;
+    if (wasOn) pumpStopMinute = simMinutes;
+    // Dag-evenwicht vergeten na een lange stilstand - vangnet voor een
+    // nieuwe dag (6aug26)
+    if (equilibriumKnown && pumpStopMinute > 0 && (simMinutes - pumpStopMinute) > EQUILIBRIUM_RESET_STAGNANT_MIN) {
+      equilibriumKnown = false;
+    }
     relayState = false; pwmValue = 0;
     pidIntegral = 0; pidPrevError = 0; floorMinutes = 0;
     warmupActive = false;
@@ -945,7 +984,9 @@ function step(){
         text = `dT gefilterd (${dTFiltered.toFixed(1)}°C) te laag — pomp uit, wacht tot dT > ${DT_TRICKLE_START}°C.`;
       } else {
         phase = 'WACHT';
-        text = `dT=${dTFiltered.toFixed(1)}°C — wacht op start (Tsol-gradiënt stabiel ${tsunGradientStableMinutes}/${GRADIENT_CONFIRM_MINUTES} min).`;
+        text = equilibriumKnown
+          ? `dT=${dTFiltered.toFixed(1)}°C — wacht op start (Tsol-gradiënt stabiel ${tsunGradientStableMinutes}/${GRADIENT_CONFIRM_MINUTES} min, dag-evenwicht=${Math.round(equilibriumPwm)}).`
+          : `dT=${dTFiltered.toFixed(1)}°C — wacht op start (Tsol-gradiënt stabiel ${tsunGradientStableMinutes}/${GRADIENT_CONFIRM_MINUTES} min, nog geen dag-evenwicht).`;
       }
     }
   } else {
@@ -962,8 +1003,7 @@ function step(){
 
       if (earlyStartTriggered) {
         // Gestart via de Tsol-gradiënt, nog vóór dT positief werd - VROEGSTART
-        // i.p.v. de normale OPWARMEN-ramp. PWM wordt vanaf 4aug26 LIVE
-        // bijgestuurd (zie verderop), i.p.v. hier vastgelegd te blijven.
+        // i.p.v. de normale OPWARMEN-ramp.
         earlyStartActive = true;
         earlyStartBeginMinute = simMinutes;
         warmupActive = false;
@@ -971,10 +1011,21 @@ function step(){
         earlyStartStableMinutes = 0;
         earlyStartPrevSensorTC = sensorTC;             // baseline voor de live-gradiënt
         earlyStartCurrentGradient = earlyStartTriggerGradient;
-        let frac = (earlyStartTriggerGradient - EARLY_START_GRADIENT_MIN) /
-                   (EARLY_START_GRADIENT_REF - EARLY_START_GRADIENT_MIN);
-        frac = Math.min(Math.max(frac, 0), 1);
-        earlyStartPwmTarget = EARLY_START_PWM_MIN + frac * (EARLY_START_PWM_MAX - EARLY_START_PWM_MIN);
+
+        if (equilibriumKnown) {
+          // Dag-evenwicht gekend (6aug26 v2): start voorzichtig op de bodem,
+          // en klim er pas ná het settle-venster geleidelijk naartoe.
+          earlyStartUsingEquilibrium = true;
+          earlyStartPwmTarget = EARLY_START_PWM_MIN;
+        } else {
+          // Eerste start van de dag - nog geen evenwicht gekend, dus terug
+          // op de live-gradiënt-bootstrap.
+          earlyStartUsingEquilibrium = false;
+          let frac = (earlyStartTriggerGradient - EARLY_START_GRADIENT_MIN) /
+                     (EARLY_START_GRADIENT_REF - EARLY_START_GRADIENT_MIN);
+          frac = Math.min(Math.max(frac, 0), 1);
+          earlyStartPwmTarget = EARLY_START_PWM_MIN + frac * (EARLY_START_PWM_MAX - EARLY_START_PWM_MIN);
+        }
       } else {
         earlyStartActive = false;
         warmupActive = true;
@@ -987,20 +1038,36 @@ function step(){
     relayState = true;
 
     // VROEGSTART (2aug26 basis, 3aug26: lineaire formule, 4aug26: LIVE
-    // bijsturing): de PWM ligt niet langer vast sinds de start, maar wordt
-    // hier elke minuut herberekend uit de actuele Tsol-gradiënt. Reden: bij
-    // een aanhoudend snel stijgende zon bleef een vaste PWM de collector niet
-    // bijbenen, waardoor dT ongebreideld kon oplopen vóór de stabiliteits-
-    // uitgang of het vangnet kon ingrijpen - met een fikse PWM-piek bij de
-    // REGIME-instap tot gevolg. Met live bijsturing schaalt de PWM voortaan
-    // mee zodra de gradiënt hoog blijft, wat dT vanzelf begrensd houdt.
+    // bijsturing, 6aug26 v2: settle-venster + dag-evenwicht met geleidelijke
+    // klim). De eerste EARLY_START_SETTLE_MINUTES na een herstart wordt nog
+    // niets herberekend - de hete-plug-piek (zie spikeMagnitudeFor) is dan
+    // bekend voorbij. Daarna: is er een dag-evenwicht gekend, dan klimt de
+    // PWM daar geleidelijk naartoe (nooit in één sprong); anders geldt de
+    // live-gradiënt-formule van hierboven. Zodra dT_gefilterd niet meer
+    // positief is, gaat de PWM in beide gevallen terug naar de bodem - dat
+    // voedt meteen ook de gedeelde AFBOUW/STOP-teller hierboven.
     if (earlyStartActive && !justStarted) {
       earlyStartCurrentGradient = sensorTC - earlyStartPrevSensorTC;
       earlyStartPrevSensorTC = sensorTC;
-      let liveFrac = (earlyStartCurrentGradient - EARLY_START_GRADIENT_MIN) /
-                     (EARLY_START_GRADIENT_REF - EARLY_START_GRADIENT_MIN);
-      liveFrac = Math.min(Math.max(liveFrac, 0), 1);
-      earlyStartPwmTarget = EARLY_START_PWM_MIN + liveFrac * (EARLY_START_PWM_MAX - EARLY_START_PWM_MIN);
+      const minutesSinceStart = simMinutes - earlyStartBeginMinute;
+
+      if (minutesSinceStart > EARLY_START_SETTLE_MINUTES) {
+        if (dTFiltered <= DT_HARD_STOP) {
+          earlyStartPwmTarget = EARLY_START_PWM_MIN;
+        } else if (earlyStartUsingEquilibrium) {
+          if (earlyStartPwmTarget < equilibriumPwm) {
+            earlyStartPwmTarget = Math.min(equilibriumPwm, earlyStartPwmTarget + EARLY_START_CLIMB_STEP);
+          } else if (dTFiltered > DT_TARGET + EQUILIBRIUM_CREEP_DT_HIGH) {
+            earlyStartPwmTarget = Math.min(EARLY_START_PWM_MAX, earlyStartPwmTarget + EQUILIBRIUM_CREEP_PWM_STEP);
+          }
+        } else {
+          let liveFrac = (earlyStartCurrentGradient - EARLY_START_GRADIENT_MIN) /
+                         (EARLY_START_GRADIENT_REF - EARLY_START_GRADIENT_MIN);
+          liveFrac = Math.min(Math.max(liveFrac, 0), 1);
+          earlyStartPwmTarget = EARLY_START_PWM_MIN + liveFrac * (EARLY_START_PWM_MAX - EARLY_START_PWM_MIN);
+        }
+      }
+      // binnen het settle-venster zelf: earlyStartPwmTarget blijft ongewijzigd
 
       const esGradient = dTFiltered - prevDTForEarlyStart;
       prevDTForEarlyStart = dTFiltered;
@@ -1048,7 +1115,14 @@ function step(){
       // D-kick-fix: pidPrevError blijft ook tijdens VROEGSTART meelopen
       pidPrevError = dTFiltered - DT_TARGET;
       phase = 'VROEGSTART';
-      text = `live gradiënt=${earlyStartCurrentGradient.toFixed(1)}°C/min → PWM=${Math.round(earlyStartPwmTarget)}, stabiel ${earlyStartStableMinutes}/${EARLY_START_STABLE_MINUTES_NEEDED} min (max ${EARLY_START_MAX_MINUTES} min).`;
+      const minutesSinceStartForLog = simMinutes - earlyStartBeginMinute;
+      if (minutesSinceStartForLog <= EARLY_START_SETTLE_MINUTES) {
+        text = `settle-venster (${minutesSinceStartForLog}/${EARLY_START_SETTLE_MINUTES} min) — PWM=${Math.round(earlyStartPwmTarget)}${earlyStartUsingEquilibrium ? `, dag-evenwicht=${Math.round(equilibriumPwm)}` : ' (bootstrap)'}.`;
+      } else if (earlyStartUsingEquilibrium) {
+        text = `klimt naar dag-evenwicht ${Math.round(equilibriumPwm)}, nu PWM=${Math.round(earlyStartPwmTarget)} (dT=${dTFiltered.toFixed(1)}°C), stabiel ${earlyStartStableMinutes}/${EARLY_START_STABLE_MINUTES_NEEDED} min (max ${EARLY_START_MAX_MINUTES} min).`;
+      } else {
+        text = `live gradiënt=${earlyStartCurrentGradient.toFixed(1)}°C/min → PWM=${Math.round(earlyStartPwmTarget)}, stabiel ${earlyStartStableMinutes}/${EARLY_START_STABLE_MINUTES_NEEDED} min (max ${EARLY_START_MAX_MINUTES} min).`;
+      }
     } else if (warmupActive) {
       pwmDoel = warmupPwmTarget;
       // D-kick-fix (31jul26): pidPrevError blijft ook tijdens OPWARMEN mee

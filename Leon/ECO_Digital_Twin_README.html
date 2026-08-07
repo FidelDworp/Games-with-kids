@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zonnecollector Digital Twin — Theorie &amp; achtergrond</title>
+<style>
+
+:root{
+  --bg:            #10161d;
+  --panel:         #1a222c;
+  --panel-raised:  #212b37;
+  --line:          #2c3948;
+  --text:          #e7edf3;
+  --text-muted:    #7d8ea1;
+  --hot:           #ff8a3d;
+  --cool:          #4fb0d9;
+  --flow:          #8fe08a;
+  --warn:          #e8c95c;
+  --alarm:         #e8615d;
+  --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  --sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+@font-face{ font-family:"IBM Plex Sans"; src:local("Segoe UI"); }
+*{ box-sizing:border-box; }
+html,body{ margin:0; }
+body{
+  background:
+    radial-gradient(1200px 600px at 15% -10%, #1a2735 0%, transparent 60%),
+    var(--bg);
+  color:var(--text);
+  font-family:var(--sans);
+  line-height:1.6;
+}
+.wrap{ max-width:820px; margin:0 auto; padding:36px 28px 80px; }
+.backlink{
+  display:inline-flex; align-items:center; gap:6px;
+  color:var(--text-muted); text-decoration:none; font-size:13px;
+  border:1px solid var(--line); border-radius:7px; padding:6px 12px;
+  margin-bottom:24px;
+}
+.backlink:hover{ border-color:var(--hot); color:var(--hot); }
+h1{
+  font-size:28px; font-weight:700; letter-spacing:.2px;
+  margin:0 0 8px; color:var(--text);
+  border-bottom:1px solid var(--line); padding-bottom:16px;
+}
+h2{
+  font-size:19px; font-weight:700; color:var(--hot);
+  margin:40px 0 12px; letter-spacing:.2px;
+}
+h3{
+  font-size:15.5px; font-weight:700; color:var(--flow);
+  margin:28px 0 10px;
+}
+p{ margin:0 0 14px; }
+strong{ color:var(--text); font-weight:700; }
+em{ color:var(--text-muted); }
+a{ color:var(--hot); }
+ul,ol{ padding-left:22px; margin:0 0 14px; }
+li{ margin-bottom:6px; }
+li input[type=checkbox]{ margin-right:6px; accent-color:var(--flow); }
+code{
+  font-family:var(--mono); background:var(--panel-raised);
+  border:1px solid var(--line); border-radius:4px;
+  padding:1px 5px; font-size:0.92em; color:var(--warn);
+}
+pre{
+  background:#0c1116; border:1px solid var(--line); border-radius:8px;
+  padding:14px 16px; overflow-x:auto; margin:0 0 16px;
+}
+pre code{
+  background:none; border:none; padding:0; color:var(--flow);
+  font-size:13px; line-height:1.5;
+}
+blockquote{
+  margin:0 0 14px; padding:2px 16px; border-left:3px solid var(--hot);
+  color:var(--text-muted);
+}
+table{
+  border-collapse:collapse; width:100%; margin:0 0 18px; font-size:14px;
+}
+th,td{
+  border:1px solid var(--line); padding:7px 12px; text-align:left;
+}
+th{ background:var(--panel-raised); color:var(--text); }
+td{ color:var(--text); }
+tr:nth-child(even) td{ background:rgba(255,255,255,0.02); }
+hr{ border:none; border-top:1px solid var(--line); margin:32px 0; }
+.tag-badge{
+  display:inline-block; font-family:var(--mono); font-size:11px;
+  padding:2px 8px; border-radius:999px; border:1px solid var(--line);
+  color:var(--text-muted); margin-right:4px;
+}
+
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="backlink" href="ECO_Digital_Twin_7aug26.html">&larr; Terug naar de simulator</a>
+<h1 id="zonnecollector-digital-twin">Zonnecollector Digital Twin</h1>
+<p>Een interactieve, in-browser simulatie van de ECO-boiler
+zonnecollector-regeling, gebouwd om te experimenteren met PID-parameters
+zonder de echte installatie te moeten aanpassen. Gestart als hulpmiddel
+om samen met mijn kleinzoon Leon (14, physica/wiskunde) te spelen met
+wat “regeltechniek” en “optimaliseren” in de praktijk betekent.</p>
+<p><strong>Live demo:</strong> zet GitHub Pages aan voor deze repository
+(Settings → Pages → Deploy from branch → <code>main</code> /
+<code>/root</code>) en de simulator draait meteen op
+<code>https://&lt;gebruikersnaam&gt;.github.io/&lt;repository&gt;/</code>.</p>
+<h2 id="de-echte-installatie-waar-gaat-dit-eigenlijk-over">De echte
+installatie: waar gaat dit eigenlijk over?</h2>
+<p>Voor je in de simulator en de regellogica duikt, is het goed om te
+weten wat er in het echt op het dak en in de kelder staat. Dit hele
+project — sketch, shadow-script en digital twin — bestuurt namelijk een
+heel concreet, fysiek systeem dat <strong>twee huizen tegelijk</strong>
+van warm water voorziet: de <strong>“Woning”</strong> (het huis van
+Opie’s zoon Maarten en zijn gezin) en de <strong>“Schuur”</strong> (waar
+Opie zelf woont). Eén installatie, twee afnemers.</p>
+<h3 id="de-collector-op-het-dak-50-warmtebuizen">De collector op het
+dak: 50 warmtebuizen</h3>
+<p>Op het dak liggen <strong>50 “heat pipes”</strong> (warmtebuizen)
+naast elkaar — dat is samen de “collector” waar we het in dit document
+steeds over hebben (Tsol). Bij ons zijn dat specifiek <strong>OEG 4flex
+/ Varisol HP-buizen</strong> (Kingspan Thermomax-technologie), elk een
+verzegelde, glazen vacuümbuis met daarbinnen een koperen absorber. Zodra
+de zon op de absorber schijnt, warmt die op — en dat brengt een kleine
+hoeveelheid speciale vloeistof binnenin de heat pipe aan het
+<strong>koken</strong>, al bij zo’n 29°C dankzij het vacuüm (koken bij
+zo’n lage temperatuur lukt enkel omdat er bijna geen lucht meer in de
+buis zit — bij normale luchtdruk zou dezelfde vloeistof pas bij een veel
+hogere temperatuur koken). Verdampen kost energie, en die energie wordt
+precies daar aan de buis onttrokken. De damp stijgt naar het koelere
+uiteinde bovenaan de buis (de “condensor”) en
+<strong>condenseert</strong> daar weer tot vloeistof — condenseren geeft
+die energie net weer vrij. De vloeistof zakt terug naar beneden, en het
+hele proces herhaalt zich, keer op keer, zolang de zon schijnt. Dat is
+een heel efficiënte manier om warmte van de absorber naar de top van de
+buis te verplaatsen, met minimaal energieverlies onderweg.</p>
+<p>Die warmte moet vervolgens nog van de buis naar het echte
+collectorwater (dat door de “verzamelbuis” bovenaan het dak stroomt).
+Dat gebeurt <strong>niet</strong> doordat de buis rechtstreeks in dat
+water hangt, maar via een <strong>droge, koperen koppeling</strong>: de
+condensor-tip van elke buis steekt in een koperen huls die er strak
+tegenaan sluit, en geleidt de warmte via puur metaal-op-metaal-contact
+naar het collectorwater. Omdat er geen vloeistof hoeft afgetapt te
+worden om een buis los te maken, kan je een individuele buis vervangen
+zonder de hele installatie te moeten leegmaken — vandaar dat “droog” in
+de technische fiches een expliciet verkoopargument is.</p>
+<p>Tegen oververhitting zit er bovendien een <strong>specifiek,
+gepatenteerd beveiligingsonderdeel</strong> ingebouwd in de kop van elke
+buis (bij Kingspan een “temperature limitation device” genoemd) — geen
+toevallig neveneffect, maar een doelbewust ontworpen onderdeel dat de
+warmteoverdracht onderbreekt of sterk afremt zodra een vaste
+drempeltemperatuur bereikt wordt: 90°C bij de uitvoering die wij
+gebruiken (er bestaat ook een 135°C-variant voor andere toepassingen).
+De fabrikant deelt niet in detail hoe dat onderdeel intern werkt, enkel
+dát het bestaat en bij die temperatuur ingrijpt — maar het resultaat is
+duidelijk: zelfs op een snikhete dag met de pomp stil, kan de
+installatie zichzelf tegen extreme oververhitting beschermen, zonder dat
+er ergens elektronica aan te pas komt.</p>
+<h3 id="van-dak-naar-boiler-de-spiraal">Van dak naar boiler: de
+spiraal</h3>
+<p>Het water dat door de verzamelbuis op het dak stroomt, gaat via
+leidingen naar beneden, naar een <strong>500 liter grote boiler</strong>
+(een grote, geïsoleerde watertank) — het hart van de hele installatie.
+Maar dat water mengt zich niet zomaar met het boilerwater: het loopt
+binnenin de boiler door een <strong>spiraal</strong> — een lange,
+opgerolde metalen buis, ondergedompeld in het boilerwater. Warmte trekt
+door de wand van die buis heen naar het boilerwater rondom, zonder dat
+de twee waterstromen ooit mengen. Dat noemen we een
+<strong>warmtewisselaar</strong>: een gesloten kringloop (dak → spiraal
+→ terug naar het dak) die zijn warmte afgeeft aan een tweede, gescheiden
+kringloop (het boilerwater zelf).</p>
+<h3 id="het-hart-van-de-installatie-de-500-liter-boiler">Het hart van de
+installatie: de 500 liter boiler</h3>
+<p>Het water in de 500L-boiler staat normaal stil — het is een
+opslagvat, geen doorstroomsysteem. Enkel als het nodig is, kan een
+<strong>pomp in de kelder</strong> dat boilerwater rondsturen naar
+andere plekken in huis. De boiler heeft dus twee soorten aansluitingen:
+bronnen die er warmte <em>in</em> pompen, en afnemers die er warmte
+<em>uit</em> kunnen halen.</p>
+<p><strong>Wat de boiler voedt (de bronnen):</strong></p>
+<ol type="1">
+<li><strong>De zonnecollector</strong>, via de spiraal hierboven
+beschreven — de hoofdbron, en waar dit hele PID-project om draait.</li>
+<li><strong>Twee houtkachels</strong>, elk met een eigen “radiator” —
+een met water gevulde warmtewisselaar, ingebouwd onder de haard. Rond de
+haard circuleert ook warme lucht (voor de kachelwerking zelf), maar die
+radiatoren onder de haard geven hun warmte apart af aan het boilerwater.
+’s Winters, als de zon weinig oplevert, helpen deze radiatoren om
+<strong>SWW</strong> te verwarmen — Sanitair Warm Water, het water dat
+uit je kraan komt om te douchen of af te wassen (in tegenstelling tot
+verwarmingswater voor de radiatoren/vloerverwarming zelf).</li>
+</ol>
+<p><strong>Waar de warmte van de boiler naartoe kan (de
+afnemers):</strong></p>
+<ol type="1">
+<li><strong>Twee “verwarmingsboilers”</strong> (bufferboilers, één per
+huis) die de <strong>vloerverwarming</strong> van Woning en Schuur
+voeden. Beide huizen verwarmen met een <strong>warmtepomp</strong> — een
+toestel dat warmte “oppompt” uit de buitenlucht of de bodem (net zoals
+een koelkast, maar dan omgekeerd) en die naar binnen brengt; veel
+zuiniger dan rechtstreeks elektrisch verwarmen. Als de 500L-boiler al
+hoog in temperatuur zit (bijvoorbeeld een zonnige dag zonder veel
+waterverbruik), kan die overtollige warmte naar deze bufferboilers
+gestuurd worden — dat noemen we <strong>dissiperen</strong>: een
+overschot ergens nuttig kwijt kunnen, in plaats van het gewoon te laten
+wegkoelen zonder er iets mee te doen. ’s Winters kan diezelfde koppeling
+ook omgekeerd nuttig zijn: een beetje extra hulp voor de verwarming,
+bovenop wat de warmtepompen al doen.</li>
+</ol>
+<h3 id="de-besturing-sensor-pomp-relais">De besturing: sensor, pomp,
+relais</h3>
+<p>Om dit alles aan te sturen, koos Opie ervoor om drie bestaande,
+“domme” onderdelen te combineren met wat zelfgeschreven “verstand”:</p>
+<ul>
+<li><strong>PT1000</strong>: de temperatuursensor die al op het dak zat
+(hergebruikt, geen nieuwe installatie nodig). Dit is een metalen
+weerstandje van platina, dat bij 0°C exact 1000 Ω (ohm) weerstand heeft,
+en waarvan die weerstand op een heel voorspelbare, stabiele manier
+stijgt met de temperatuur. Door die weerstand te meten (met een klein,
+bekend stroompje) en om te rekenen, ken je de temperatuur heel
+nauwkeurig — en een PT1000 is bovendien robuust genoeg om jarenlang
+extreme temperatuurschommelingen op een dak te overleven (van vorst tot
+ruim boven 100°C).</li>
+<li><strong>PWM (Pulse Width Modulation)</strong>: de pomp kan traploos
+versnellen of vertragen, en dat gebeurt niet door de spanning zelf te
+verlagen (dat verspilt energie als warmte), maar door de voeding
+razendsnel aan en uit te schakelen — honderden keren per seconde. Hoe
+groter het aandeel “aan” binnen elke cyclus, hoe meer gemiddeld vermogen
+de pomp voelt, en hoe sneller ze draait. De pomp “voelt” enkel het
+gemiddelde, niet de snelle aan/uit-schakelingen zelf — vandaar dat je in
+dit project overal “PWM” ziet als synoniem voor “pompsnelheid” (0 =
+stil, 255 = vol vermogen).</li>
+<li><strong>Een relais</strong>: een elektromagnetisch geschakelde
+schakelaar. Het zwakke stuurstroompje van de microcontroller (een paar
+Volt) kan onmogelijk rechtstreeks de pomp aan/uit zetten — die draait op
+<strong>230V AC</strong> (de gewone Belgische netspanning: 230 Volt,
+<em>wisselspanning</em>, wat betekent dat de stroom 50 keer per seconde
+van richting wisselt — in tegenstelling tot <em>gelijkspanning</em>,
+zoals in een batterij, die altijd dezelfde richting behoudt). Het relais
+lost dat op: het stuurstroompje activeert een kleine elektromagneet, die
+op zijn beurt een fysiek contact dichttrekt — en dát contact schakelt
+pas de echte, gevaarlijke 230V naar de pomp. Zo blijft de
+microcontroller volledig gescheiden van de hoogspanning, wat essentieel
+is voor de veiligheid.</li>
+</ul>
+<h3 id="het-brein-een-particle-photon">Het brein: een Particle
+Photon</h3>
+<p>De microcontroller die dit alles aanstuurt, is een <strong>Particle
+Photon</strong> — een klein WiFi-printplaatje, vergelijkbaar met een
+Arduino, maar met ingebouwde WiFi en een koppeling naar een
+cloud-dienst. Doordat hij verbonden is met het
+<strong>WiFi-netwerk</strong> thuis, kan Opie de sketch (zo noemt men,
+uit de Arduino-traditie, gewoon “het programma” dat op zo’n bordje
+draait) op afstand bijwerken via <strong>OTA</strong> (“over-the-air”) —
+dus zonder een kabeltje in te pluggen, gewoon een nieuwe versie
+doorsturen via het internet, waarna de Photon zichzelf herstart met de
+nieuwe code. Dat gebeurt via een <strong>web-IDE</strong>: een
+ontwikkelomgeving die volledig in de browser draait — code schrijven,
+compileren én naar het bordje sturen, allemaal vanaf een website, zonder
+software te moeten installeren.</p>
+<h2 id="van-een-kant-en-klare-regelaar-naar-een-eigen-ontwerp">Van een
+kant-en-klare regelaar naar een eigen ontwerp</h2>
+<p>Enkele jaren geleden verving Opie de originele regelaar (een
+commercieel, Duits toestel van het merk <strong>OEG</strong>) door dit
+zelfgebouwde systeem. Die OEG-regelaar regelde niet goed: de pomp
+draaide bijna voortdurend tegen een hoog toerental, wat hoorbaar was en
+de familie in de Woning stoorde. De instelmogelijkheden waren bovendien
+erg uitgebreid en ondoorzichtig — “op z’n Duits”, grondig maar log, met
+tientallen parameters zonder dat duidelijk was welke knop welk gedrag
+precies veranderde.</p>
+<p>Opie besloot toen zelf een regelaar te bouwen, met twee heel concrete
+doelen:</p>
+<ul>
+<li><strong>Zo efficiënt mogelijk “oogsten”</strong>: zoveel mogelijk
+van de beschikbare zonnewarmte effectief naar de boiler krijgen. Dat
+klinkt vanzelfsprekend, maar is een balans: laat de pomp te traag
+draaien, dan blijft het water te lang in de hete collector hangen en
+verliest het onderweg weer warmte aan de omgeving; laat de pomp te snel
+draaien, dan passeert het water te snel om onderweg genoeg warmte op te
+pikken, en verspil je bovendien elektriciteit en veroorzaak je nodeloos
+lawaai. Ergens tussenin zit een sweet spot — en dat “ergens tussenin
+steeds opnieuw vinden, ook als de omstandigheden wijzigen” is exact waar
+een goede regelaar (en verderop in dit document: een PID-regelaar) voor
+dient. Merk je de link met <code>DT_TARGET</code> uit de rest van dit
+document? Dat is letterlijk de wiskundige vertaling van “oogsten zonder
+te verspillen”: een klein, positief temperatuurverschil aanhouden tussen
+collector en boiler, net genoeg om efficiënt warmte over te dragen, niet
+meer.</li>
+<li><strong>Zo weinig mogelijk lawaai</strong>: de pomp enkel zo hard
+laten draaien als nodig, in plaats van hem standaard tegen een hoog
+toerental te laten draaien “voor de zekerheid”.</li>
+</ul>
+<h2
+id="vandaag-op-zoek-naar-een-echte-pid-regeling-work-in-progress">Vandaag:
+op zoek naar een “echte” PID-regeling — work in progress</h2>
+<p>Opie’s zelfgebouwde sketch draaide al een tijd naar behoren, maar de
+regeling was nog niet wat hij ervan verwachtte — vandaar dat hij
+onlangs, met hulp van Claude, de bestaande sketch kritisch is beginnen
+doorlichten. Uit die analyse groeide het voorstel om de bestaande, wat
+eenvoudigere regellogica te vervangen door een “echte” PID-regeling —
+met de P-, I- en D-termen zoals verderop in dit document uitgelegd, in
+plaats van simpelere vuistregels. Dat traject loopt op dit moment nog
+volop: nieuwe sketch-versies worden op de echte installatie getest,
+resultaten geanalyseerd, bugs gevonden en gefixt, parameters bijgesteld.
+Vandaar dat je doorheen dit document uitdrukkingen ziet als
+<strong>“work in progress”</strong> — een gangbare uitdrukking in
+software- en regeltechniek-projecten voor “nog niet af, we verfijnen nog
+volop, met vallen en opstaan” — in plaats van “we hebben in één keer de
+perfecte oplossing gevonden”. De rest van dit document (en de digital
+twin zelf) is precies het verslag van dat traject, stap voor stap.</p>
+<h2 id="voor-leon-hoe-lees-je-dit-document">Voor Leon: hoe lees je dit
+document</h2>
+<p>Dit README legt stap voor stap uit <em>waarom</em> de regeling doet
+wat ze doet — niet als een handleiding die je van boven naar onder moet
+doorworstelen, maar als een verhaal met een logische volgorde. Je hebt
+hierboven al kunnen lezen <strong>wat de echte installatie is</strong>
+en <strong>waarom</strong> ze bestaat; vanaf hier gaat het over
+<strong>hoe</strong> de regeling zelf werkt, en over de simulator die
+dat naspeelt:</p>
+<ol type="1">
+<li>Eerst het <strong>fysisch model</strong>: welke twee dingen
+simuleren we eigenlijk, en met welke simpele natuurkunde?</li>
+<li>Dan <strong>dode tijd</strong>: een subtiel maar cruciaal begrip uit
+de regeltechniek, dat verklaart waarom de pomp soms bleef pendelen
+ongeacht hoe we de regelaar instelden.</li>
+<li>Dan de <strong>regellogica zelf</strong>: van “de pomp staat stil”
+tot “de pomp regelt zichzelf strak rond het doel”, fase per fase, in de
+volgorde waarin ze ook echt na elkaar gebeuren op een zonnige
+ochtend.</li>
+<li>Dan <strong>P, I en D</strong> apart uitgelegd — de kern van een
+PID-regelaar, met concrete cijfers die we zelf met deze simulator
+geverifieerd hebben.</li>
+<li>Tot slot <strong>vier echte problemen</strong> die we onderweg
+vonden — twee klassieke bugs en twee ontoereikende aanpakken — als
+voorbeeld van hoe je in de praktijk fouten en tekortkomingen opspoort.
+Dat is minstens even leerrijk als de regeltechniek zelf.</li>
+</ol>
+<p>Je hoeft geen regel code te kunnen lezen om dit te volgen. Overal
+waar een formule of vakterm staat, leggen we ook in woorden uit wat ze
+betekent.</p>
+<h2 id="wat-dit-is-en-niet-is">Wat dit is — en niet is</h2>
+<p>Dit is een <strong>kwalitatief correct, niet kwantitatief
+exact</strong> model. Het doel is intuïtie opbouwen over hoe P, I en D
+elk apart bijdragen, en waarom bepaalde instellingen tot pendelen of net
+tot een strakke vergrendeling leiden — niet om te voorspellen wat de
+echte installatie op de graad nauwkeurig zal doen. De grootteordes
+(tijdconstantes, temperatuurstijgingen) zijn zo gekozen dat ze
+<em>aanvoelen</em> zoals de echte data die we via de Photon-sketch
+verzamelden, maar zijn niet gekalibreerd op werkelijke metingen.</p>
+<h2 id="het-fysisch-model">Het fysisch model</h2>
+<p>De simulator simuleert eigenlijk maar <strong>twee
+temperaturen</strong>: de collector (Tsol, op het dak) en de onderste
+boilerlaag (BotH). Alles daartussen — de leidingen, de pomp, de
+warmtewisselaar — wordt vereenvoudigd tot een paar simpele regels.</p>
+<h3 id="de-collector-warmt-op-en-koelt-af-newtons-afkoelingswet">De
+collector warmt op en koelt af — Newton’s afkoelingswet</h3>
+<p>De <strong>zoninstraling</strong> (W/m², de schuifknop) is niet
+rechtstreeks een temperatuur — het is hoeveel zonnekracht er nu
+binnenkomt, net zoals op een echt zonnepaneel. Die instraling wordt
+eerst omgezet naar een <strong>evenwichtstemperatuur</strong>: de
+temperatuur waar de collector uiteindelijk naartoe zou gaan als er niets
+anders gebeurde (geen pomp, geen wind, niets):</p>
+<pre><code>evenwicht = 18°C + instraling × 0,08</code></pre>
+<p>Bij 0 W/m² (nacht, of volledig bewolkt) is dat evenwicht dus gewoon
+de omgevingstemperatuur (18°C) — logisch, zonder instraling koelt alles
+af tot de omgeving. Bij volle zon (1000 W/m²) geeft dat een evenwicht
+van 98°C, een realistische stagnatietemperatuur voor een eenvoudige
+collector.</p>
+<p>Pas daarna volgt de eigenlijke collector-fysica — de temperatuur
+trekt elke minuut een stukje dichter naar dat evenwicht:</p>
+<pre><code>Tsol_nieuw = Tsol + HEAT_GAIN × (evenwicht − Tsol)</code></pre>
+<p>Dit is exact dezelfde wiskundige vorm als Newton’s afkoelingswet, die
+je wellicht al kent (of binnenkort tegenkomt) uit de fysica: hoe groter
+het verschil met het evenwicht, hoe sneller de temperatuur verandert;
+hoe kleiner het verschil, hoe trager. Dat geeft een <strong>exponentiële
+toenadering</strong> — nooit een rechte lijn, en nooit een abrupte
+sprong. <code>HEAT_GAIN = 0,12</code> bepaalt hoe snel die toenadering
+gaat (een soort tijdconstante). Dit tweetrapsmodel (instraling →
+evenwicht → exponentiële toenadering) verklaart trouwens meteen waarom
+de Zoninstraling-schuifknop (W/m²) en de Tsol-uitlezing (°C) nooit
+dezelfde waarde tonen: de ene is de <em>oorzaak</em>, de andere het
+(vertraagde) <em>gevolg</em>.</p>
+<p>Zodra de pomp draait, onttrekt ze warmte evenredig met hoe hard ze
+draait (PWM) én hoe groot het verschil is met de boiler:</p>
+<pre><code>onttrokken warmte = FLOW_COOL × PWM × max(Tsol − BotH, 0)</code></pre>
+<p>Die warmte verdwijnt bij de collector
+(<code>Tsol -= onttrokken warmte</code>) en een deel ervan
+(<code>BOIL_TRANSFER = 0,35</code>, want de boilerlaag is kleiner en
+niet alles komt aan) verwarmt de boiler. De boiler verliest daarnaast
+ook nog traag warmte aan de omgeving/aan warmwaterverbruik
+(<code>AMBIENT_LOSS</code>).</p>
+<h3
+id="het-hete-plug-effect-waarom-de-sensor-liegt-vlak-na-een-herstart">Het
+“hete-plug”-effect — waarom de sensor liegt vlak na een herstart</h3>
+<p>Dit is het stukje fysica dat wéken speurwerk kostte om te snappen.
+Zolang de pomp stilstaat, warmt het <strong>stilstaande water vlak bij
+de sensor</strong> langzaam mee met de collector — een soort geïsoleerde
+“prop” die niet wegstroomt. Zodra de pomp herstart, komt die opgewarmde
+prop eerst voorbij de sensor, vóór het echte, koelere water uit de rest
+van het circuit er is. Het gevolg: de sensor toont eventjes een te hoge
+temperatuur, die na 1-2 minuten weer wegzakt naar de werkelijke
+waarde.</p>
+<pre><code>piekgrootte = min(stilstandsduur × 2,5 , 35)   [in °C, dooft uit over 2 simulatie-stappen]</code></pre>
+<p>Dit is precies wat we in de echte data zagen: dT die in één minuut
+van 20°C naar 36°C sprong, vlak na een herstart — geen meetfout, maar
+een fysisch, voorspelbaar verschijnsel.</p>
+<p>Zie de constanten <code>HEAT_GAIN</code>, <code>FLOW_COOL</code>,
+<code>BOIL_TRANSFER</code>, <code>AMBIENT_LOSS</code> en
+<code>spikeMagnitudeFor()</code> bovenaan het script in
+<code>ECO_Digital_Twin_3aug26.html</code> — dat zijn de knoppen om het
+model zelf bij te stellen als het gedrag niet aanvoelt zoals de echte
+installatie.</p>
+<h2
+id="dode-tijd-transportvertraging-waarom-een-goede-regelaar-toch-kan-blijven-pendelen">Dode
+tijd (transportvertraging) — waarom een goede regelaar toch kan blijven
+pendelen</h2>
+<p>Dit is misschien het belangrijkste regeltechnische inzicht van heel
+dit project, dus laten we het rustig opbouwen.</p>
+<p><strong>Het probleem, met een analogie:</strong> stel je speelt een
+computerspel waarbij je een balletje op een lijn moet houden, maar het
+beeld hinkt een halve seconde achter op je bewegingen. Je stuurt bij op
+basis van informatie die al voorbijgestreefd is — tegen de tijd dat je
+reageert, is de werkelijke situatie alweer veranderd. Hoe harder je dan
+probeert bij te sturen, hoe groter de kans dat je overcorrigeert, en het
+balletje blijft heen en weer slingeren — niet omdat je slecht stuurt,
+maar omdat je <em>vertraagde</em> informatie gebruikt.</p>
+<p>Dat is precies wat er gebeurde op de echte installatie: op 31 juli
+gaven <strong>vier volledig verschillende Kp/Ki/Kd-combinaties</strong>
+allemaal hetzelfde ~9-11-minuten-slingerpatroon. Als de regelaar zelf
+het probleem was, zou een andere instelling het patroon moeten
+veranderen. Dat het niet veranderde, is de vingerafdruk van een
+<strong>dode tijd</strong> (transportvertraging) ergens in het systeem,
+niet van een verkeerd afgestelde PID.</p>
+<p><strong>Waar komt die vertraging vandaan?</strong> Bij een lage
+pompsnelheid beweegt het water traag door de leiding. Een verandering in
+de collector moet dus letterlijk fysiek “reizen” tot bij de sensor vóór
+de regelaar ze kan zien — hoe trager het debiet, hoe langer die reis
+duurt.</p>
+<p><strong>Hoe simuleren we dat?</strong> Niet met een letterlijke
+leidingvertraging (dat zou een “geheugen” van voorbije waarden vereisen
+— technisch een stuk complexer), maar met een vereenvoudigde
+<strong>exponentiële naijling</strong>:</p>
+<pre><code>gevoelde_temp_nieuw = gevoelde_temp + vertragingsfactor × (echte_temp − gevoelde_temp)
+vertragingsfactor = clamp(PWM / 60, 0.05, 1)</code></pre>
+<p>Bij hoge PWM ligt de vertragingsfactor dicht bij 1: de gevoelde
+temperatuur volgt de echte bijna onmiddellijk. Bij lage PWM (en dus een
+hoge dode tijd) zakt de factor tot een absolute ondergrens van 0,05 —
+traag, maar nooit helemaal bevroren (zie de bugfix-uitleg verderop, dat
+“nooit helemaal bevroren” bleek zelf een addertje onder het gras). Zet
+<code>PWM-bodem</code> laag in de simulator en de vertraging wordt groot
+genoeg om zelfstandig te slingeren, ongeacht Kp/Ki/Kd; zet ze hoog
+(zoals op 17 juli, PWM-bodem 60) en de vertraging wordt kort genoeg om
+weg te regelen.</p>
+<h2 id="de-regellogica-van-stilstand-tot-strakke-regeling">De
+regellogica: van stilstand tot strakke regeling</h2>
+<p>De simulator draait een JavaScript-vertaling van exact dezelfde
+<code>solarPump()</code>-logica als de echte Photon-sketch (versie
+PID20, 3 augustus 2026). In plaats van de fasen zomaar op te sommen,
+lopen we het verhaal van een zonnige ochtend na — in de volgorde waarin
+het ook echt gebeurt.</p>
+<h3
+id="wacht-de-pomp-staat-stil-en-er-gebeurt-meer-dan-je-zou-denken">1.
+WACHT — de pomp staat stil, en er gebeurt meer dan je zou denken</h3>
+<p>Zodra de zon opkomt, warmt de collector op terwijl de pomp nog
+stilstaat. Er lopen dan <strong>twee onafhankelijke tellers</strong>
+tegelijk, die elk een andere start kunnen triggeren:</p>
+<ul>
+<li><strong>dT_gefilterd</strong> (het verschil tussen collector en
+boiler, door een filter gehaald — zie verderop) — zodra die boven 0°C
+komt, mág de pomp starten.</li>
+<li>De <strong>rauwe Tsol-gradiënt</strong>: hoe snel de
+collectortemperatuur zelf van minuut tot minuut stijgt, los van dT.
+Blijft die gradiënt 3 minuten na elkaar boven 0,5°C/min, dan triggert
+dat een <strong>vroegere</strong> start — zie VROEGSTART hieronder.</li>
+</ul>
+<p>Wat er het eerst gebeurt, bepaalt via welke poort de pomp start.</p>
+<h3 id="a.-opwarmen-de-gewone-weg">2a. OPWARMEN — de gewone weg</h3>
+<p>Als dT_gefilterd positief wordt zonder dat de gradiënt-drempel
+gehaald werd, start de pomp via <strong>OPWARMEN</strong>: een open-lus
+fase (geen PID) waarin de PWM elke minuut met 4 tot 15 klimt — hoe
+steiler dT nog stijgt, hoe groter de stap:</p>
+<pre><code>stap = 4 + (15 − 4) × clamp(gradiënt / 2,0 , 0, 1)</code></pre>
+<p>Zodra dT_gefilterd 3 minuten na elkaar minder dan 0,3°C verandert (of
+na een vangnet van 10 minuten), wordt het circuit als “opgewarmd”
+beschouwd, en neemt REGIME (de PID) over.</p>
+<p><em>Waarom niet meteen de PID gebruiken?</em> Omdat de PID net na een
+herstart tegen de hete-plug-piek zou aanbotsen, en die piek verkeerd zou
+interpreteren als een structureel hoge fout — met een veel te hoge
+PWM-uitschieter tot gevolg. OPWARMEN laat het systeem eerst rustig tot
+rust komen.</p>
+<h3 id="b.-vroegstart-de-snelle-weg-2-6-augustus">2b. VROEGSTART — de
+snelle weg (2-6 augustus)</h3>
+<p>Op een snel zonnige ochtend hoeft de regeling niet te wachten tot dT
+zelf positief is: de collector zelf warmt dan al zichtbaar snel op.
+VROEGSTART start de pomp preventief zodra die gradiënt 3 minuten na
+elkaar boven 0,5°C/min blijft — nog vóór dT positief wordt.</p>
+<p><strong>Het settle-venster (6 augustus): de eerste 2 minuten gebeurt
+er bewust niets.</strong> We weten intussen (zie “Bug 1” verderop) dat
+elke pompherstart een korte, valse temperatuurpiek geeft door het
+hete-plug-effect — dat duurt ongeveer 2 minuten. Reken je dus meteen na
+de start al met wat de sensor op dat moment zegt, dan reken je met een
+leugen. Daarom wacht VROEGSTART nu bewust 2 minuten, zonder iets aan de
+PWM te veranderen, vóór ze ook maar iets herberekent. Pas daarna begint
+de eigenlijke sturing:</p>
+<ul>
+<li><strong>Is er al een dag-evenwicht gekend?</strong> (zie hieronder)
+— dan klimt de PWM daar rustig naartoe, in stapjes van 10 per minuut, in
+plaats van er in één keer op te springen.</li>
+<li><strong>Nog geen evenwicht gekend</strong> (de allereerste start van
+de dag) — dan geldt de <strong>lineaire interpolatie</strong> van
+hiervoor:
+<code>PWM = 30 + clamp((gradiënt−0,5)/2,5, 0, 1) × 70</code>.</li>
+</ul>
+<p>Zakt dT_gefilterd op enig moment terug naar 0°C of lager, dan gaat de
+PWM in beide gevallen meteen terug naar de bodem (30) — dat is exact
+hetzelfde signaal dat ook AFBOUW gebruikt, en het telt voortaan ook mee
+voor dezelfde STOP-teller (zie verderop).</p>
+<h3
+id="het-dag-evenwicht-6-augustus-hergebruik-in-plaats-van-elke-keer-opnieuw-gokken">Het
+dag-evenwicht (6 augustus) — hergebruik in plaats van elke keer opnieuw
+gokken</h3>
+<p>Dit idee kwam van Opie zelf, en het is de moeite waard om te
+begrijpen waaróm het werkt. Zolang de pomp in REGIME draait én dicht bij
+het doel zit, houdt de sketch een traag bijgewerkt gemiddelde bij van de
+PWM die op dat moment nodig is:</p>
+<pre><code>evenwicht_nieuw = evenwicht + 0,05 × (huidige_PWM − evenwicht)</code></pre>
+<p>Herken je die formule? Het is <strong>exact dezelfde wiskundige
+vorm</strong> als <code>dT_gefilterd</code> zelf (een EMA — exponentieel
+gewogen gemiddelde), enkel met een veel kleinere factor (0,05 in plaats
+van 0,3), dus een pak trager. Dat is precies de bedoeling: één korte
+storing mag het evenwicht niet meteen verstoren, maar over een uur mag
+het wél meegroeien als de zon écht sterker of zwakker wordt.</p>
+<p><strong>Waarom dit iets oplost:</strong> vóór 6 augustus moest
+VROEGSTART bij élke herstart, de hele dag door, opnieuw “gokken” op een
+verse gradiëntmeting — die we intussen weten dat na een stilstand altijd
+een tijdje onbetrouwbaar is. Op een wisselvallige dag met veel korte
+onderbrekingen (zie de log van 5 augustus) gaf dat een hardnekkige
+zaagtand: PWM sprong van bodem naar plafond en terug, telkens opnieuw.
+Met het dag-evenwicht hoeft de regeling dat niet meer: ze
+<strong>hergebruikt wat ze al weet</strong> in plaats van het elke keer
+opnieuw af te leiden uit een meting die toch maar een paar minuten
+geldig is. Dat scheelde in onze eigen tests zo’n 60-75% van die grote
+PWM-sprongen.</p>
+<p>Het evenwicht wordt vergeten na 4 uur ononderbroken stilstand —
+anders zou de sketch morgenochtend nog met vandaags PWM beginnen, wat
+niet klopt als het weer helemaal anders is.</p>
+<p>De duur van VROEGSTART ligt niet vast: net als bij OPWARMEN wacht ze
+tot dT_gefilterd zelf 3 minuten na elkaar stabiliseert (met 40 minuten
+als vangnet), vóór REGIME overneemt.</p>
+<h3 id="regime-de-pid-neemt-het-over">3. REGIME — de PID neemt het
+over</h3>
+<p>Dit is het hart van de regeling: een klassieke PID-formule die de PWM
+continu bijstuurt om dT_gefilterd op DT_TARGET = 2,5°C te houden.</p>
+<pre><code>fout = dT_gefilterd − 2,5
+PWM  = 60 + Kp×fout + Ki×∫fout + Kd×(dfout/dt)</code></pre>
+<p>We leggen P, I en D hieronder apart uit — dat verdient zijn eigen
+sectie.</p>
+<h3 id="afbouw-en-stop-hoe-de-pomp-weer-stilvalt">4. AFBOUW en STOP —
+hoe de pomp weer stilvalt</h3>
+<p>Zakt de PWM tot op de bodem (60) én blijft dT_gefilterd onder 0°C,
+dan loopt een teller op (<strong>AFBOUW</strong>). Blijft dat 5 minuten
+aanhouden zonder herstel, dan stopt de pomp definitief
+(<strong>STOP</strong>) — een laatste redmiddel tegen zinloos blijven
+draaien als de zon écht weg is.</p>
+<p><strong>Sinds 6 augustus geldt deze teller ook tijdens
+VROEGSTART</strong>, niet enkel tijdens REGIME/AFBOUW. Vroeger kon een
+VROEGSTART die niet aansloeg tot 40 minuten blijven proberen zonder enig
+vangnet; nu wordt hetzelfde, al jarenlang beproefde mechanisme gewoon
+hergebruikt. Dat is een klein maar mooi voorbeeld van een algemeen
+engineering-principe: als je iets al hebt dat werkt, bouw dan liever
+geen nieuw, ongetest mechanisme ernaast — hergebruik het bestaande.</p>
+<h3 id="twee-directe-overrides-los-van-dit-hele-verhaal">Twee directe
+overrides, los van dit hele verhaal</h3>
+<ul>
+<li><strong>THERMOSIFON</strong>: als dT_gefilterd toevallig positief is
+(bv. door een sensorstoring) terwijl de collector zelf nog kouder dan
+22°C is, weigert de pomp te starten — anders zou je warm boilerwater
+richting een koude collector pompen en het net omgekeerde bereiken van
+wat je wil.</li>
+<li><strong>OVERVERHIT</strong>: zodra de collector 90°C of meer
+bereikt, forceert de logica de pomp op volle kracht (PWM=255), ongeacht
+alle andere logica — een noodrem.</li>
+</ul>
+<h2 id="p-i-en-d-elk-apart-met-echte-zelf-geverifieerde-cijfers">P, I en
+D — elk apart, met echte, zelf-geverifieerde cijfers</h2>
+<p>Een PID-regelaar combineert drie manieren om op een fout te reageren.
+De analogie die vaak gebruikt wordt: stel je probeert een douchekraan op
+de juiste temperatuur te zetten.</p>
+<ul>
+<li><strong>P (Proportioneel)</strong> = hoe hard je de kraan <em>nu
+meteen</em> draait, evenredig met hoe ver de temperatuur nog van goed
+zit. Grote fout → grote correctie; kleine fout → kleine correctie.
+Nadeel: P alleen bereikt het doel nooit helemaal — hoe dichter je komt,
+hoe kleiner je correctie, tot je uiteindelijk vlak bij het doel “blijft
+hangen” zonder het ooit exact te raken.</li>
+<li><strong>I (Integrerend)</strong> = een geheugen van hoelang en hoe
+erg het al mis zat. Zelfs een kleine, aanhoudende afwijking bouwt zich
+langzaam op tot een correctie die P alleen nooit zou geven — en duwt zo
+die laatste, hardnekkige afwijking alsnog weg.</li>
+<li><strong>D (Differentiërend)</strong> = reageert niet op de fout
+zelf, maar op <em>hoe snel</em> ze verandert. Een soort demper die al
+ingrijpt vóór de fout zelf groot wordt — nuttig om een plotse piek
+(zoals de hete-plug-transiënt) sneller af te vlakken.</li>
+</ul>
+<p>We hebben dit met de simulator zelf getest en geverifieerd (constante
+zon-intensiteit, PWM-bodem=60, doel=2,5°C):</p>
+<p><strong>Zuiver proportioneel (Ki=0, Kd=0):</strong></p>
+<table>
+<thead>
+<tr class="header">
+<th>Kp</th>
+<th>gemiddelde dT_gefilterd</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1</td>
+<td>4,16°C</td>
+</tr>
+<tr class="even">
+<td>4</td>
+<td>3,35°C</td>
+</tr>
+<tr class="odd">
+<td>8</td>
+<td>3,14°C</td>
+</tr>
+<tr class="even">
+<td>15</td>
+<td>2,96°C</td>
+</tr>
+</tbody>
+</table>
+<p>Je ziet: hoe hoger Kp, hoe dichter bij het doel van 2,5°C — maar
+zelfs bij Kp=15 blijft er een kleine, blijvende afwijking over. Dat is
+precies de beperking van P alleen.</p>
+<p><strong>Ki erbij, op Kp=4 vast (Kd=0):</strong></p>
+<table>
+<thead>
+<tr class="header">
+<th>Ki</th>
+<th>gemiddelde dT_gefilterd</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>0</td>
+<td>3,35°C</td>
+</tr>
+<tr class="even">
+<td>0,3</td>
+<td>2,88°C</td>
+</tr>
+<tr class="odd">
+<td>1,0</td>
+<td>2,63°C</td>
+</tr>
+</tbody>
+</table>
+<p>Met dezelfde Kp duwt een hogere Ki die resterende afwijking verder
+weg richting het doel — exact de rol die I hoort te spelen.</p>
+<p>Probeer dit gerust zelf na met de sliders: zet Ki en Kd op 0, speel
+met Kp, en kijk of dT_gefilterd in de buurt van deze tabel uitkomt.</p>
+<h2 id="vier-echte-problemen-die-we-vonden-en-wat-we-ervan-leerden">Vier
+echte problemen die we vonden — en wat we ervan leerden</h2>
+<p>Naast de regeltechniek zelf is er nog een tweede, minstens even
+waardevolle les in dit project: <strong>hoe je fouten en tekortkomingen
+opspoort in een systeem dat er op het eerste gezicht goed
+uitziet.</strong> De eerste twee zijn klassieke programmeerfouten
+(bugs); de laatste twee zijn subtieler — geen fout in de code, maar een
+aanpak die in de praktijk ontoereikend bleek.</p>
+<h3
+id="bug-1-de-derivative-kick-een-d-term-die-vergeet-dat-de-tijd-stilstond">Bug
+1: de “derivative kick” — een D-term die vergeet dat de tijd
+stilstond</h3>
+<p>De D-term rekent met <code>fout − vorige_fout</code>. Maar wat als je
+tijdens OPWARMEN (of VROEGSTART) helemaal geen PID gebruikt, en dus die
+“vorige fout” nooit bijwerkt? Bij de eerste stap ín REGIME vergelijkt de
+D-term dan plots met een fout van <strong>meerdere minuten
+geleden</strong>, in plaats van de vorige minuut — een kunstmatig grote
+sprong, die nog groeit naarmate Kd hoger staat. Het omgekeerde van wat
+een D-term hoort te doen (dempen, niet versterken).</p>
+<p>De fix is klein — <code>pidPrevError</code> gewoon laten meelopen,
+óók tijdens de open-lus-fasen — maar de <strong>manier waarop we hem
+vonden</strong> is de eigenlijke les: eerst gevonden in déze simulator
+(makkelijker te doorzoeken dan de echte hardware), en pas daarna ontdekt
+dat <strong>exact dezelfde bug ook in de echte Photon-sketch
+zat</strong>, ongemerkt, tot de fix er expliciet naar overgeport werd.
+Twee stukken code die “hetzelfde” doen, delen niet automatisch dezelfde
+bugfixes — je moet dat zelf bewaken.</p>
+<h3 id="bug-2-de-teller-die-zichzelf-leegmaakte">Bug 2: de teller die
+zichzelf leegmaakte</h3>
+<p>Bij het bouwen van VROEGSTART moest een teller bijhouden hoeveel
+minuten na elkaar de Tsol-gradiënt al boven de drempel zat, <em>terwijl
+de pomp stilstaat</em>. De eerste versie reset die teller per ongeluk
+<strong>elke keer opnieuw naar 0</strong> zolang de pomp uit bleef — dus
+juist tijdens de minuten die hij hoorde te tellen. Het gevolg: de teller
+kon nooit voorbij 1 geraken, en VROEGSTART zou in de praktijk nooit
+triggeren.</p>
+<p>Dit is een klassiek voorbeeld van een
+<strong>off-by-logic-fout</strong>: de code “leest” op het eerste
+gezicht logisch, maar de volgorde waarin twee stukjes logica elkaar
+raken (de teller ophogen vs. de teller resetten) zit net verkeerd. Zulke
+fouten vind je zelden door de code gewoon te lezen — pas door de logica
+stap voor stap na te bootsen (of, zoals hier, door het uit te testen op
+de echte installatie en de resultaten kritisch te controleren) kom je ze
+op het spoor.</p>
+<h3
+id="probleem-3-een-formule-die-op-papier-klopt-maar-niet-in-élke-situatie-volstaat">Probleem
+3: een formule die op papier klopt, maar niet in élke situatie
+volstaat</h3>
+<p>Dit is geen bug in de klassieke zin — de lineaire PWM-formule van
+VROEGSTART (3 augustus) deed precies wat ze moest doen: een PWM
+berekenen die evenredig is met de gradiënt op het triggermoment. Het
+probleem zat in een <strong>impliciete aanname</strong> die pas achteraf
+duidelijk werd: dat die ene, eerste gradiënt representatief zou blijven
+voor de rest van de opstartperiode.</p>
+<p>Op een gematigd zonnige ochtend klopt die aanname aardig. Maar op 4
+augustus bleef de zon op de echte installatie <em>aanhoudend</em> snel
+doorstijgen — en een PWM die maar één keer werd vastgelegd, kon die
+aanhoudende stijging niet bijbenen. Het gevolg: dT liep op tot ruim
+<strong>75°C</strong> boven het doel van 2,5°C, ver voorbij wat de
+stabiliteits-uitgang of het vangnet van 40 minuten ooit kon opvangen,
+met een stevige PWM-piek (tot 224!) bij de overgang naar REGIME tot
+gevolg.</p>
+<p>De oplossing (zie hierboven): <strong>dezelfde formule, maar elke
+minuut opnieuw doorgerekend</strong> met de dan-actuele gradiënt, in
+plaats van met de gradiënt van bij het begin. Dat is een mooi, algemeen
+inzicht in regeltechniek: een correcte formule op één moment in de tijd
+toepassen is niet hetzelfde als een correcte <em>regeling</em> — een
+regeling moet zichzelf voortdurend blijven bijsturen op basis van wat er
+<em>nu</em> gebeurt, niet enkel op basis van wat er bij het begin
+gemeten werd. Dat onderscheid — een eenmalige berekening versus een
+doorlopende terugkoppeling — is eigenlijk de kern van wat een “regelaar”
+(zoals de PID) anders maakt dan een simpel, vooraf berekend recept.</p>
+<h3
+id="probleem-4-een-veiligheidsklep-die-zelf-niet-veilig-genoeg-bleek">Probleem
+4: een veiligheidsklep die zelf niet veilig genoeg bleek</h3>
+<p>Dit is misschien wel de belangrijkste les van de vier — niet omdat de
+fout zo bijzonder was, maar omdat ze bijna <strong>ongetest de echte
+installatie in was gegaan</strong>.</p>
+<p>Toen het dag-evenwicht (hierboven) voor het eerst werd voorgesteld,
+kreeg het een eenvoudige veiligheidsklep mee: zakt dT_gefilterd te ver
+onder nul (de pomp pompt dan energie de verkeerde kant op, van de boiler
+náár een kouder collectorcircuit), dan bouwt de PWM met 15 per minuut
+af. Dat klonk redelijk — tot een eigen stress-test, opgezet vóórdat er
+iets naar de installatie ging, iets onthulde: in een scenario waarbij de
+boiler nog heet was van een sterke periode, maar de zon bij een nieuwe
+herstart net zwak bleek, zakte dT tot <strong>-30°C</strong>, ver
+voorbij wat die klep kon bijbenen. Ze reageerde gewoon te traag voor hoe
+snel het kon mislopen.</p>
+<p>De oplossing zat niet in een snellere of striktere klep, maar in een
+heel andere aanpak: <strong>VROEGSTART start voortaan altijd voorzichtig
+op de bodem</strong> (nooit meer meteen op een hoge waarde, ook niet als
+die “normaal” goed zou moeten zijn) <strong>en deelt het bestaande
+STOP-vangnet</strong> (zie hierboven) in plaats van een nieuw, eigen
+mechanisme te bedenken. Een misgelopen herstart stopt daardoor binnen
+dezelfde 5 minuten die de rest van het systeem al als aanvaardbaar
+risico hanteert — begrensd door iets wat al jaren bewezen werkt, niet
+door iets nieuws dat nog moest bewijzen dat het werkte.</p>
+<p>De les hier is bijna een samenvatting van het hele project:
+<strong>test ook je eigen veiligheidsmaatregelen even kritisch als de
+rest van het systeem.</strong> Een idee dat op papier logisch klinkt (en
+dat deed dit zeker), is pas echt betrouwbaar nadat je het bewust op een
+slecht-scenario hebt losgelaten — niet enkel op de situaties waarin je
+al verwacht dat het werkt.</p>
+<h2 id="het-circuitschema-rechtsboven">Het circuitschema
+(rechtsboven)</h2>
+<p>Een schematische, levende weergave van collector, boiler en pomp,
+opgebouwd uit:</p>
+<ul>
+<li><strong>Collector</strong>: bovenaan, met een zon-icoontje en een
+kleur die met Tsol meeloopt. Toont de Tsol-waarde op de uitgang
+(rechts).</li>
+<li><strong>Boiler</strong>: de helft zo breed als de collector en er
+precies onder gecentreerd. Zes lagen, van boven naar onder:
+<strong>TopH, TopL, MidH, MidL, BotH, BotL</strong>. Enkel BotH wordt
+effectief gesimuleerd (en toont dus een live temperatuur); de vijf
+andere zijn illustratieve labels.</li>
+<li><strong>Leidingen</strong>: symmetrisch getekend — de hete leiding
+daalt recht naar beneden vanaf de collector-uitgang (rechts) en knikt
+pas helemaal onderaan naar de boiler; de retourleiding stijgt op
+dezelfde manier recht omhoog vanaf de boiler (links) en knikt pas
+helemaal bovenaan naar de collector-ingang. De streepjes bewegen mee,
+sneller bij hogere PWM, stil bij PWM=0.</li>
+<li><strong>Pomp</strong>: op de retourleiding, met een live PWM-cijfer
+ernaast.</li>
+<li><strong>Voor/na de spiraal</strong>: enkel de temperatuur ná de
+spiraal (afgekoeld, blauw) wordt apart getoond naast de BotH-laag — de
+temperatuur vóór de spiraal is gewoon Tsol zelf en staat al bovenaan bij
+de collector, dus die werd niet nodeloos verdubbeld. Formule:
+<code>BotH + (Tsol − BotH) × (1 − e^(−PWM/60))</code> — hoe lager de
+PWM, hoe meer warmte het water per doorgang afgeeft (langere contacttijd
+in de spiraal), dus hoe dichter de uittemperatuur bij BotH ligt i.p.v.
+bij Tsol.</li>
+</ul>
+<h2 id="info-knopjes-bij-de-systeemparameters">Info-knopjes bij de
+systeemparameters</h2>
+<p>Elke PID-parameter (en de PWM-bodem, en de opstartfasen) heeft een
+klein ⓘ-icoontje naast het label. Hover toont een korte teaser, klikken
+opent een uitlegvenster met wat de term doet en wat er gebeurt bij
+verhogen/verlagen — met concrete, zelf geverifieerde voorbeeldcijfers
+uit tests van deze exacte regellogica. De simulatie pauzeert automatisch
+zolang het venster open staat, en herneemt nadien de vorige pauzestatus.
+Sluiten kan via het kruisje, door buiten het venster te klikken, of met
+Escape.</p>
+<h2 id="bediening">Bediening</h2>
+<ul>
+<li><strong>Zoninstraling</strong> (W/m²): hoeveel zonnekracht er nu
+binnenkomt — niet de collectortemperatuur zelf. Die (Tsol) volgt
+hieruit, met vertraging (zie hieronder). 0 W/m² komt overeen met de
+omgevingstemperatuur als evenwicht, 1000 W/m² (volle zon) met zo’n 98°C
+stagnatietemperatuur. Sinds 4 augustus volgt deze schuifknop
+<strong>altijd live</strong> de actuele, effectieve waarde (dus
+inclusief een lopend scenario of wolkeneffect) — sleep je hem zelf, dan
+neem je de controle terug en stopt een eventueel lopend scenario.</li>
+<li><strong>BotH — boilertemperatuur nu</strong>: sleep om de
+boilertemperatuur onmiddellijk te wijzigen (bv. na warmwaterverbruik).
+Volgt net als Tsol altijd live de gesimuleerde waarde, behalve terwijl
+je hem zelf vasthoudt.</li>
+<li><strong>Kp / Ki / Kd</strong>: dezelfde drie PID-knoppen als in de
+echte sketch, elk met een ⓘ-info-knop.</li>
+<li><strong>PWM-bodem</strong>: hoe laag de pomp minimaal mag draaien
+tijdens REGIME — de knop om de dode-tijd-hypothese zelf te testen.</li>
+<li><strong>Snelheid</strong>: hoeveel gesimuleerde minuten er per reële
+seconde verstrijken (verandert niets aan het regelgedrag zelf — enkel
+aan hoe snel je het ziet gebeuren, want elke stap blijft intern exact 1
+gesimuleerde minuut).</li>
+</ul>
+<h3 id="scenarios-nieuw-4-augustus">Scenario’s (nieuw, 4 augustus)</h3>
+<p>Vier knoppen die de zon-intensiteit een tijdlang zelf besturen, als
+een lineaire ramp over een vaste, gesimuleerde duur — daarna blijft de
+zon gewoon op de bereikte waarde staan en heb je opnieuw handmatige
+controle:</p>
+<ul>
+<li><strong>🌅 Ochtend start (zomer)</strong>: een snelle, steile
+zonsopgang (100 → 950 W/m² over 22 gesimuleerde minuten). Steil genoeg
+om VROEGSTART te triggeren — mooi om de live-PWM-bijsturing in actie te
+zien. <em>Tip: zorg dat BotH niet te koud staat (de knop zet ’m
+automatisch op 45°C als dat nodig is) — anders springt dT al meteen over
+de trickle-drempel en krijgt VROEGSTART nooit de kans om te
+triggeren.</em></li>
+<li><strong>🌄 Ochtend start (winter)</strong>: een trage, geleidelijke
+zonsopgang (50 → 500 W/m² over 100 gesimuleerde minuten). Blijft net
+onder de VROEGSTART-drempel, dus de pomp start via de klassieke
+OPWARMEN-weg — een leuk contrast met het zomer-scenario.</li>
+<li><strong>🌇 Zonsondergang</strong>: de instraling zakt geleidelijk
+weg naar 30 W/m² (70 gesimuleerde minuten) — handig om AFBOUW en STOP in
+actie te zien, zoals op een tanende avond.</li>
+<li><strong>☁ Wolk passeert</strong>: laat de zon-intensiteit 5
+gesimuleerde minuten dalen en herstelt dan vanzelf.</li>
+<li><strong>🌤 Wisselende wolken (sinus)</strong>: schakelt een
+voortdurende, wisselvallige zonkracht in (trage golving + willekeurige
+“gril”), i.p.v. een constante waarde — handig om te zien hoe de regeling
+omgaat met écht grillig weer.</li>
+</ul>
+<p><strong>De scenario’s zijn combineerbaar</strong>: een wolk kan
+gewoon passeren tijdens een lopende ochtendstart, of de
+wisselende-wolken-modus aanstaan tijdens een zonsondergang — ze werken
+allemaal bovenop dezelfde onderliggende basiswaarde, in plaats van
+elkaar te overschrijven.</p>
+<ul>
+<li><strong>↺ Reset</strong>: begint opnieuw vanaf koude start,
+annuleert een eventueel lopend scenario, en zet alle sliders terug op
+hun startwaarde.</li>
+</ul>
+<h2 id="lessen-uit-de-echte-hardware-tests">Lessen uit de
+echte-hardware-tests</h2>
+<p>Een aantal harde lessen uit het heen-en-weer traject op de echte
+Photon-installatie, die de simulator mee vormgaven:</p>
+<ul>
+<li><strong>Een vaste “kortsluiting” (bv.
+<code>Tsun&gt;75°C → PWM=180</code>) kan een goed werkende PID volledig
+ondermijnen.</strong> Op 29 juli bleek zo’n vaste override, losgekoppeld
+van de PID, een griezelig regelmatige zaagtand van 11 minuten te
+veroorzaken — telkens crashend exact op het moment dat de drempel
+overschreden werd. Les: laat de PID een heel bereik consequent zelf
+regelen, i.p.v. hem op een drempel te laten “overrulen”.</li>
+<li><strong>Verschillende PID-instellingen die toch hetzelfde patroon
+geven, wijzen op een niet-PID-oorzaak.</strong> Zie de sectie “Dode
+tijd” hierboven.</li>
+<li><strong>Bij twijfel: isoleer één variabele per test.</strong> Zowel
+op de hardware als in de simulator bleek keer op keer dat het tegelijk
+wijzigen van meerdere parameters het achteraf onmogelijk maakt om te
+weten wélke wijziging welk effect had.</li>
+<li><strong>Een bug gevonden in de simulator moet je expliciet
+terugporten naar de echte code</strong> — ze delen dezelfde logica, maar
+niet automatisch dezelfde bugfixes (zie “Vier echte problemen”
+hierboven).</li>
+</ul>
+<h2 id="openstaande-vragen-roadmap">Openstaande vragen / Roadmap</h2>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />Dode tijd /
+transportvertraging simuleren, als vereenvoudigde flow-afhankelijke
+naijling</label></li>
+<li><label><input type="checkbox" checked="" />OPWARMEN:
+gradiënt-gebaseerde open-lus opstartfase i.p.v. een vaste
+ramp</label></li>
+<li><label><input type="checkbox" checked="" />VROEGSTART: preventieve
+start op basis van de Tsol-gradiënt, met lineaire
+PWM-formule</label></li>
+<li><label><input type="checkbox" checked="" />VROEGSTART: PWM live
+bijgestuurd i.p.v. eenmalig vastgelegd bij de start</label></li>
+<li><label><input type="checkbox" checked="" />Scenario-knoppen (ochtend
+zomer/winter, zonsondergang) en live-tracking sliders</label></li>
+<li><label><input type="checkbox" checked="" />Settle-venster +
+dag-evenwicht: VROEGSTART hergebruikt wat al werkte, i.p.v. bij élke
+herstart opnieuw te gokken</label></li>
+<li><label><input type="checkbox" checked="" />VROEGSTART deelt voortaan
+het bestaande STOP-vangnet (was voorheen uitgesloten)</label></li>
+<li><label><input type="checkbox" />De dode-tijd-benadering vervangen
+door een echte, vaste-lengte transportvertraging (delay-buffer) i.p.v.
+een exponentiële naijling, voor wie het verschil tussen de twee zelf wil
+voelen</label></li>
+<li><label><input type="checkbox" />Nachtblokkering (07u-21u) simuleren
+met een eigen kloklijn, los van de zon-scenario’s</label></li>
+<li><label><input type="checkbox" />Een “vergelijk twee instellingen
+naast elkaar”-modus (bv. huidige Kp/Ki/Kd naast een
+voorstel)</label></li>
+<li><label><input type="checkbox" />Kalibratie van de fysica-constanten
+op een echte, geëxporteerde dag data (curve fitting) i.p.v. “aanvoelt
+goed”</label></li>
+<li><label><input type="checkbox" />Exporteren van een simulatiesessie
+als CSV, in hetzelfde formaat als de echte Google Sheets-log, om ze
+naast elkaar te kunnen leggen</label></li>
+<li><label><input type="checkbox" />Mobiele lay-out verder verfijnen
+(grafieken en schema worden vrij klein op smalle schermen)</label></li>
+<li><label><input type="checkbox" />Eventueel ook live temperaturen
+simuleren voor de vijf niet-gemodelleerde boilerlagen
+(TopH/TopL/MidH/MidL/BotL), i.p.v. enkel BotH</label></li>
+</ul>
+<h2 id="versiegeschiedenis-samengevat">Versiegeschiedenis
+(samengevat)</h2>
+<ul>
+<li><strong>v1</strong>: eerste simulator — sliders voor
+Tsun/BotH/Kp/Ki/Kd, temperatuur- en PWM-grafiek (incl. dT-lijn),
+consolevenster met uitleg per fase.</li>
+<li><strong>v2</strong>: dT-lijn en bijhorende rechter-as uit de
+temperatuurgrafiek verwijderd; linker-as vast op 0-100°C; header
+versmald en een eerste circuitschema toegevoegd (collector, boiler met 6
+lagen, pomp).</li>
+<li><strong>v3</strong>: boiler verkleind (helft van de
+collectorbreedte) en gecentreerd; voor/na-spiraal-temperaturen gesplitst
+in rood/blauw links-rechts van de BotH-laag; BotH-temperatuur zelf
+zichtbaar gemaakt; zon-icoon en temperatuur-gekleurde rechthoeken
+toegevoegd voor collector én BotH.</li>
+<li><strong>v4</strong>: D-term-bug gefixt (kunstmatige piek bij de
+opstart→REGIME-overgang); ⓘ-info-knoppen met uitlegvensters toegevoegd
+bij Kp/Ki/Kd.</li>
+<li><strong>v5</strong>: BotH-slider volgt nu ook live de gesimuleerde
+waarde; het overbodige dubbele Tsol-label verplaatst/samengevoegd
+bovenaan bij de collector; leidingen links/rechts symmetrisch getekend
+(pomp mee verschoven); alle sliders starten voortaan op hun laagste
+waarde.</li>
+<li><strong>v6 (31jul26)</strong>: dode tijd (transportvertraging)
+toegevoegd als flow-afhankelijke naijling tussen de werkelijke en de
+gevoelde collectortemperatuur — direct geïnspireerd door de ontdekking
+op de echte hardware dat vier verschillende PID-instellingen allemaal
+hetzelfde slingerpatroon gaven.</li>
+<li><strong>v7 (3aug26)</strong>: de vaste opstart-ramp vervangen door
+<strong>OPWARMEN</strong> (gradiënt-gebaseerde open-lus fase) en
+<strong>VROEGSTART</strong> toegevoegd (preventieve start op basis van
+de Tsol-gradiënt, met een lineaire PWM-formule en een
+stabiliteits-gebaseerde duur); nieuw faselabel <strong>WACHT</strong>;
+info-modals bijgewerkt met opnieuw geverifieerde cijfers voor het nieuwe
+doel van 2,5°C; nieuwe modal die OPWARMEN/VROEGSTART uitlegt; README
+volledig herschreven, systematisch en didactisch opgebouwd voor
+Leon.</li>
+<li><strong>v8 (4aug26)</strong>: VROEGSTART-PWM wordt nu <strong>live
+bijgestuurd</strong> — elke minuut herberekend uit de actuele gradiënt,
+i.p.v. eenmalig vastgelegd (zie “Probleem 3” hierboven). Vier nieuwe
+<strong>scenario-knoppen</strong> toegevoegd (Ochtend start
+zomer/winter, Zonsondergang) die de zon-intensiteit als een lineaire
+ramp over een vaste duur besturen, combineerbaar met de (hernoemde)
+wolk-knoppen. De Zon-intensiteit-slider volgt voortaan, net als BotH,
+altijd live de actuele waarde.</li>
+<li><strong>v9 (4aug26)</strong>: drie UI-verduidelijkingen. (1)
+Scenario- en wolk-knoppen tonen nu duidelijk hun status (pulserend
+gemarkeerd terwijl actief, uitgegrijsd terwijl niet beschikbaar). (2)
+Een korte toelichting onder de sliders maakt expliciet dat ze steeds de
+live meterwaarden tonen. (3) <strong>Zon-intensiteit is vervangen door
+Zoninstraling in W/m²</strong> (0-1000), realistischer dan een
+rechtstreekse temperatuur-schuifknop — de instraling wordt nu apart
+omgezet naar een evenwichtstemperatuur (zie “Het fysisch model”), wat
+meteen ook verklaart waarom die schuifknop nooit dezelfde waarde toont
+als de Tsol-uitlezing. De ochtend-scenario’s zetten BotH automatisch op
+een realistische waarde als die nog te koud staat, zodat VROEGSTART
+betrouwbaar kan triggeren.</li>
+<li><strong>v10 (7aug26)</strong>: VROEGSTART kreeg een
+<strong>settle-venster</strong> (de eerste 2 minuten na een herstart
+wordt bewust niets herberekend — de hete-plug-piek is dan pas bekend
+voorbij) en het nieuwe <strong>dag-evenwicht</strong> (zie “Probleem 4”
+hierboven): na de eerste, gewone start van de dag hoeft VROEGSTART niet
+telkens opnieuw te gokken op een verse gradiënt, maar klimt ze rustig
+naar de PWM die al bewees te werken. VROEGSTART deelt voortaan ook het
+bestaande STOP-vangnet i.p.v. daarvan uitgesloten te zijn.</li>
+</ul>
+<h2 id="herkomst">Herkomst</h2>
+<p>Gebouwd na een aantal weken heen-en-weer testen met de echte Particle
+Photon-installatie (zie de sketch-versiehistoriek: PID9 t/m PID22, 25
+juli – 6 augustus 2026) — de regellogica hier is bewust 1-op-1 dezelfde
+als daar, zodat een inzicht uit de simulator ook echt vertaalbaar is
+naar de sketch.</p>
+<p>Belangrijkste mijlpalen sinds de eerste versie: - <strong>31jul26
+(PID16/17):</strong> derivative-kick-bug gevonden (eerst in de
+simulator, dan bevestigd in de echte sketch) en gecorrigeerd; dode tijd
+toegevoegd aan het model - <strong>1aug26 (PID18):</strong> de vaste
+opstart-ramp vervangen door OPWARMEN, een gradiënt-gebaseerde open-lus
+fase die zelf beoordeelt wanneer het circuit “opgewarmd” is;
+trickle-start bij dT&gt;0 i.p.v. te wachten op een hogere drempel -
+<strong>2aug26 (PID19):</strong> VROEGSTART toegevoegd — een preventieve
+starttrigger op basis van de rauwe Tsol-gradiënt, nog vóór dT zelf
+positief wordt, met een vaste PWM en duur als eerste, eenvoudige versie
+- <strong>3aug26 (PID20):</strong> VROEGSTART verfijnd met een lineaire
+PWM-formule (naar de trigger-gradiënt) en een stabiliteits-gebaseerde
+duur (i.p.v. een vaste timer) — dezelfde aanpak als OPWARMEN al
+gebruikte - <strong>4aug26 (PID21):</strong> VROEGSTART-PWM wordt LIVE
+bijgestuurd — elke minuut herberekend uit de actuele gradiënt, i.p.v.
+eenmalig vastgelegd bij de start. Op een aanhoudend snel stijgende
+ochtend liep dT anders ongebreideld op (tot &gt;75°C boven doel
+geobserveerd) vóór de stabiliteits-uitgang kon ingrijpen. Zelf
+geverifieerd in simulatie: dT-piek daalde van &gt;75°C naar ~8°C,
+REGIME-instappiek van PWM 195-224 naar PWM ~110. - <strong>6aug26
+(PID22):</strong> het dag-evenwicht toegevoegd (idee van Opie) — zie
+“Probleem 4” hierboven voor het volledige verhaal, inclusief de eigen
+fout die eerst gecorrigeerd moest worden vóór dit naar de installatie
+ging. Op echte, wisselvallige dagen (5-6 augustus) bleek
+live-gradiënt-VROEGSTART bij élke herstart een hardnekkige zaagtand te
+geven; het dag-evenwicht + settle-venster + gedeeld STOP-vangnet
+verminderden dat in eigen tests met 60-75%.</p>
+
+</div>
+</body>
+</html>
